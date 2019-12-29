@@ -3,17 +3,21 @@ import stat
 import socket
 import time
 import errno
+import serial
+
 
 E_INTEGRAL_PORT = 1
 E_INVALID_IP_ADDRESS = 2
 E_PATH_EXISTS_BUT_NOT_SOCKET = 3
 E_HANDLER_NOT_CALLABLE = 4
+E_INVALID_BUFFER_TYPE = 5
 
 _error2string = {
     E_INTEGRAL_PORT: "Port number shall be an integral, got: '%r'",
     E_INVALID_IP_ADDRESS: "Invalid IP-address, got: '%r'",
     E_PATH_EXISTS_BUT_NOT_SOCKET: "Path already exists but it is not a socket: '%s'",
-    E_HANDLER_NOT_CALLABLE: "The handler is not callable"
+    E_HANDLER_NOT_CALLABLE: "The handler is not callable",
+    E_INVALID_BUFFER_TYPE: "Invalid buffer type"
 }
 
 
@@ -40,7 +44,8 @@ class Server(object):
     #
     _server_type2class = {
         'tcp': lambda handler, address, port, max_connections=1: _TCPSocketServer(handler, address, port, max_connections),
-        'unix': lambda handler, path, max_connections=1: _UNIXSocketServer(handler, path, max_connections)
+        'unix': lambda handler, path, max_connections=1: _UNIXSocketServer(handler, path, max_connections),
+        'serial': lambda handler, port, baudrate=9600, bytesize=serial.EIGHTBITS, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, timeout=None, xonxoff=False, rtscts=False, write_timeout=None, dsrdtr=False, inter_byte_timeout=None, exclusive=None: _SerialServer(handler, port, baudrate, bytesize, parity, stopbits, timeout, xonxoff, rtscts, write_timeout, dsrdtr, inter_byte_timeout, exclusive)
     }
 
     #
@@ -64,6 +69,7 @@ class Server(object):
     #
     # * tcp : create a TCP/IP socket server.
     # * unix: create a UNIX domain socket server.
+    # * serial: create a serial port server.
     #
     @classmethod
     def create(cls, server_type, handler, *args, **kwargs):
@@ -78,23 +84,47 @@ class Connection(object):
         pass
 
     #
+    # Encode a buffer for sending. Raise an exception
+    # when buffer type is invalid.
+    #
+    @staticmethod
+    def _encode(buffer, encoding='utf8'):
+        if not isinstance(buffer, (str, bytes, bytearray, memoryview)):
+            raise ServerError(E_INVALID_BUFFER_TYPE, _error2string[E_INVALID_BUFFER_TYPE])
+        return bytes(buffer, encoding)
+
+    #
+    # Decode a received buffer. Raise an exception
+    # when the buffer type is invalid.
+    #
+    @staticmethod
+    def _decode(buffer, encoding='utf8'):
+        if not isinstance(buffer, (bytes, bytearray, memoryview)):
+            raise ServerError(E_INVALID_BUFFER_TYPE, _error2string[E_INVALID_BUFFER_TYPE])
+        if encoding is not None:
+            decoded = str(buffer, encoding)
+        else:
+            decoded = bytes(buffer)
+        return decoded
+
+    #
     # Send buffer to peer. The buffer is expected
     # to be a string, which is utf8 encoded before
     # sending.
     #
-    def sendall(self, buffer):
+    def sendall(self, buffer, encoding='utf8'):
         raise NotImplementedError("%s: The sendall() method shall be implemented in a subclass" % type(self).__name__)
 
     #
     # Receive data from peer. The data is expected to
     # to be utf8 encoded and is return as a string.
     #
-    def receive(self):
+    def receive(self, encoding='utf8'):
         raise NotImplementedError("%s: The receive() method shall be implemented in a subclass" % type(self).__name__)
 
 
 #
-# Create a socket connection.
+# Define a socket connection.
 #
 class _SocketConnection(Connection):
     def __init__(self, socket_, address):
@@ -103,20 +133,16 @@ class _SocketConnection(Connection):
         self._address = address
 
     #
-    # Send buffer to peer encoded in utf8.
+    # Send buffer to peer.
     #
-    def sendall(self, buffer):
-        buffer = bytes(buffer, 'utf8')
-        return self._socket.sendall(buffer)
+    def sendall(self, buffer, encoding='utf8'):
+        return self._socket.sendall(self._encode(buffer, encoding))
 
     #
-    # Receive data from peer. Decode from
-    # utf8 and return as a string.
+    # Receive data from peer.
     #
-    def receive(self):
-        data = self._socket.recv(1024)
-        data = data.decode('utf8')
-        return data
+    def receive(self, encoding='utf8'):
+        return self._decode(self._socket.recv(1024), encoding)
 
 
 #
@@ -152,7 +178,7 @@ class _SocketServer(Server):
     #
     # When the handler exits, the connection is shutdown/closed. When
     # the handler as an integral return value, it is returned to the
-    # parent process. Otherwise the return value is set to 0
+    # parent process. Otherwise the return value is set to 0.
     #
     def serve_forever(self):
         self._socket.listen(1)
@@ -245,3 +271,87 @@ class _UNIXSocketServer(_SocketServer):
             mode = os.stat(path).st_mode
             is_socket = stat.S_ISSOCK(mode)
         return is_socket
+
+
+#
+# Define a serial connection.
+#
+class _SerialConnection(Connection):
+    def __init__(self, serial_):
+        super(_SerialConnection, self).__init__()
+        self._serial = serial_
+
+    #
+    # Send buffer to peer.
+    #
+    def sendall(self, buffer, encoding='utf8'):
+        total = 0
+        while total < len(buffer):
+            sent = self._serial.write(self._encode(buffer[total:], encoding))
+            total += sent
+
+    #
+    # Receive data from peer.
+    #
+    def receive(self, encoding='utf8'):
+        return self._decode(self._serial.read(1), encoding)
+
+
+#
+# Define a serial server.
+#
+class _SerialServer(Server):
+    #
+    # Initialize serial port, but do not open it yet.
+    #
+    def __init__(self, handler, port, baudrate, bytesize, parity, stopbits, timeout, xonxoff, rtscts, write_timeout, dsrdtr, inter_byte_timeout, exclusive):
+        super(_SerialServer, self).__init__(port, handler)
+        self._serial = serial.Serial(None, baudrate, bytesize, parity, stopbits, timeout, xonxoff, rtscts, write_timeout, dsrdtr, inter_byte_timeout, exclusive)
+
+    #
+    # Close the connection and ignore any
+    # errors while doing so.
+    #
+    def _close_connection(self):
+        try:
+            self._serial.close()
+        except Exception as e:
+            UNUSED(e)
+
+    #
+    # Run the socket server forever. For each connection fork()
+    # a new process and run the connection handler. Do not accept
+    # more then 1 connection at the same time.
+    #
+    # When the handler exits, the connection is closed. When the handler
+    # as an integral return value, it is returned to the parent process.
+    # Otherwise the return value is set to 0.
+    #
+    def serve_forever(self):
+        self._serial.port = self._address
+        while True:
+            self._serial.open()
+            pid = os.fork()
+            if pid == 0:
+                status = 0                                             # Path executed in the child process.
+                try:
+                    status = self._handler(_SerialConnection(self._serial))
+                except Exception as e:
+                    UNUSED(e)
+                finally:
+                    if not isinstance(status, int):
+                        status = 0                                     # When status is not integral, overrule.
+                    # noinspection PyProtectedMember
+                    os._exit(status)                                   # Exit the child process.
+            else:
+                try:                                                   # Path executed in the parent process.
+                    finished_pid, finished_status = os.waitpid(pid, 0)    # Wait until child process has finished before opening a new connection.
+                    UNUSED(finished_pid, finished_status)              # Return values are not used at the moment.
+                except OSError as e:
+                    if e.errno != errno.ECHILD:
+                        raise e
+                    #
+                    # The child as already exited, which is fine.
+                    #
+                finally:
+                    self._close_connection()                           # When the child has exited, close the connection.
