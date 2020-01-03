@@ -8,6 +8,9 @@ from .Server import Server, Connection, ServerError, UNUSED
 from .Errors import *
 from .Errors import _error2string
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
 
 #
 # Define a socket connection.
@@ -29,7 +32,7 @@ class _SocketConnection(Connection):
     #
     def receive(self, buffer_size=1024, encoding='utf8'):
         buffer = self._socket.recv(buffer_size)
-        if buffer == '':
+        if len(buffer) == 0:
             raise socket.error(errno.ECONNRESET, os.strerror(errno.ECONNRESET))
         return self._decode(buffer, encoding)
 
@@ -79,6 +82,7 @@ class _SocketServer(Server):
         self._socket.listen(1)
         children = []
         while True:
+            logger.info("%s: serve_forever() -- Accepting connections at: %s.", type(self).__name__, str(self._address))
             connection, address = self._socket.accept()
             pid = os.fork()
             if pid == 0:
@@ -87,10 +91,16 @@ class _SocketServer(Server):
                     #
                     # Call the connection handler.
                     #
+                    logger.info("%s: serve_forever() -- Incoming connection from: %s.", type(self).__name__, str(address))
                     status = self._handler(_SocketConnection(connection, address))
+                except socket.error as e:
+                    if e.errno == errno.ECONNRESET:
+                        logger.error("%s: serve_forever() -- %s.", type(self).__name__, e)
+                    raise e
                 except Exception as e:
-                    logging.exception(e)
+                    logger.exception("%s: serve_forever() -- %s", type(self).__name__, e)
                 finally:
+                    logger.info("%s: serve_forever() -- Closed connection from: %s.", type(self).__name__, str(address))
                     self._close_connection(connection)                 # Always shutdown/close the connection properly.
                     if not isinstance(status, int):
                         status = 0                                     # When status is not integral, overrule.
@@ -98,6 +108,7 @@ class _SocketServer(Server):
                     os._exit(status)                                   # Exit the child process.
             else:
                 children.append(pid)                                   # Path executed in the parent process.
+                log_max_connections = True
                 while True:
                     for pid in children[:]:
                         finished_pid = 0
@@ -117,6 +128,9 @@ class _SocketServer(Server):
                                 children.remove(finished_pid)
                     if len(children) < self._max_connections:          # Wait until we can accept connections again.
                         break
+                    if log_max_connections:
+                        logger.info("%s: serve_forever() -- Maximum number of connections (%d) reached.", type(self).__name__, self._max_connections)
+                        log_max_connections = False
                     time.sleep(0.01)                                   # Throttle.
 
 

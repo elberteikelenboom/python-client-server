@@ -3,8 +3,9 @@ import errno
 import serial
 import logging
 from .Server import Server, Connection, ServerError, UNUSED
-from .Errors import *
-from .Errors import _error2string
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 #
@@ -70,25 +71,29 @@ class _SerialServer(Server):
     def serve_forever(self):
         self._serial.port = self._address
         while True:
+            logger.info("%s: serve_forever() -- Accepting connections at: %s.", type(self).__name__, str(self._address))
             self._serial.open()
             self._serial.reset_input_buffer()
             self._serial.reset_output_buffer()
             pid = os.fork()
             if pid == 0:
-                status = 0                                             # Path executed in the child process.
+                status = 0                                                     # Path executed in the child process.
                 try:
+                    logger.info("%s: serve_forever() -- Incoming connection.", type(self).__name__)
                     status = self._handler(_SerialConnection(self._serial))
                 except Exception as e:
-                    logging.exception(e)
+                    logger.exception("%s: serve_forever() -- %s", type(self).__name__, e)
                 finally:
+                    logger.info("%s: serve_forever() -- Closed connection.", type(self).__name__)
                     if not isinstance(status, int):
-                        status = 0                                     # When status is not integral, overrule.
+                        status = 0                                             # When status is not integral, overrule.
                     # noinspection PyProtectedMember
-                    os._exit(status)                                   # Exit the child process.
+                    os._exit(status)                                           # Exit the child process.
             else:
-                try:                                                   # Path executed in the parent process.
-                    finished_pid, finished_status = os.waitpid(pid, 0)    # Wait until child process has finished before opening a new connection.
-                    UNUSED(finished_pid, finished_status)              # Return values are not used at the moment.
+                try:                                                           # Path executed in the parent process.
+                    logger.info("%s: serve_forever() -- Maximum number of connections (%d) reached.", type(self).__name__, 1)
+                    finished_pid, finished_status = os.waitpid(pid, 0)         # Wait until child process has finished before opening a new connection.
+                    UNUSED(finished_pid, finished_status)                      # Return values are not used at the moment.
                 except OSError as e:
                     if e.errno != errno.ECHILD:
                         raise e
@@ -96,4 +101,4 @@ class _SerialServer(Server):
                     # The child as already exited, which is fine.
                     #
                 finally:
-                    self._close_connection()                           # When the child has exited, close the connection.
+                    self._close_connection()                                   # When the child has exited, close the connection.

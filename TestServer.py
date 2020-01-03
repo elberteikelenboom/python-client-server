@@ -1,3 +1,4 @@
+import logging
 from Server import Server
 
 
@@ -11,9 +12,10 @@ def echo_server(connection):
 
 
 def main():
-    server = Server.create('tcp', echo_server, '127.0.0.1', 8080)
-    # server = Server.create('unix', handler, '/home/elbert/server', max_connections=2)
-    # server = Server.create('serial', handler, '/dev/ttyUSB0', rtscts=True)
+    logging.basicConfig(level=logging.INFO)
+    server = Server.create('tcp', echo_server, '127.0.0.1', 8080, max_connections=2)
+    # server = Server.create('unix', echo_server, '/home/elbert/server', max_connections=2)
+    # server = Server.create('serial', echo_server, '/dev/ttyUSB0', rtscts=True)
     server.serve_forever()
 
 
