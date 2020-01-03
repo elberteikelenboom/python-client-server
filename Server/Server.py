@@ -133,20 +133,22 @@ class Connection(object):
 
     #
     # Receive a single line of text from peer. The encoding
-    # must be a valid and cannot be None. If buffer size is
-    # None, the line length is unlimited. If a buffer size
-    # is specified, the return line may be truncated in this
-    # situation the line may not contain a newline character.
+    # must be a valid string and cannot be None. If buffer
+    # size is None, the line length is unlimited. If a buffer
+    # size is specified, the returned line may be truncated.
+    # In this situation the line may not contain a newline
+    # character.
     #
     def receive_line(self, buffer_size=None, encoding='utf8'):
         raise NotImplementedError("%s: The receive_line() method shall be implemented in a subclass" % type(self).__name__)
 
     #
     # Receive one or more lines of text from peer. The encoding
-    # must be a valid and cannot be None. If buffer size is
-    # None, the line length is unlimited. If a buffer size
-    # is specified, the return line may be truncated in this
-    # situation the line may not contain a newline character.
+    # must be a valid string and cannot be None. If buffer
+    # size is None, the line length is unlimited. If a buffer
+    # size is specified, the returned line may be truncated.
+    # In this situation the line may not contain a newline
+    # character.
     #
     def receive_lines(self, buffer_size=None, encoding='utf8'):
         while True:
