@@ -3,6 +3,7 @@ import stat
 import errno
 import time
 import socket
+import logging
 from .Server import Server, Connection, ServerError, UNUSED
 from .Errors import *
 from .Errors import _error2string
@@ -20,14 +21,23 @@ class _SocketConnection(Connection):
     #
     # Send buffer to peer.
     #
-    def sendall(self, buffer, encoding='utf8'):
-        return self._socket.sendall(self._encode(buffer, encoding))
+    def send(self, buffer, encoding='utf8'):
+        self._socket.sendall(self._encode(buffer, encoding))
 
     #
     # Receive data from peer.
     #
-    def receive(self, encoding='utf8'):
-        return self._decode(self._socket.recv(1024), encoding)
+    def receive(self, buffer_size=1024, encoding='utf8'):
+        buffer = self._socket.recv(buffer_size)
+        if buffer == '':
+            raise socket.error(errno.ECONNRESET, os.strerror(errno.ECONNRESET))
+        return self._decode(buffer, encoding)
+
+    #
+    # Receive a single line of text from peer.
+    #
+    def receive_line(self, buffer_size=None, encoding='utf8'):
+        return self._receive_line(1024, buffer_size, encoding)
 
 
 #
@@ -79,7 +89,7 @@ class _SocketServer(Server):
                     #
                     status = self._handler(_SocketConnection(connection, address))
                 except Exception as e:
-                    UNUSED(e)
+                    logging.exception(e)
                 finally:
                     self._close_connection(connection)                 # Always shutdown/close the connection properly.
                     if not isinstance(status, int):

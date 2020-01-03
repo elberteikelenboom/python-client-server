@@ -1,7 +1,10 @@
 import os
 import errno
 import serial
-from .Server import Server, Connection, UNUSED
+import logging
+from .Server import Server, Connection, ServerError, UNUSED
+from .Errors import *
+from .Errors import _error2string
 
 
 #
@@ -15,7 +18,7 @@ class _SerialConnection(Connection):
     #
     # Send buffer to peer.
     #
-    def sendall(self, buffer, encoding='utf8'):
+    def send(self, buffer, encoding='utf8'):
         total = 0
         while total < len(buffer):
             sent = self._serial.write(self._encode(buffer[total:], encoding))
@@ -24,8 +27,14 @@ class _SerialConnection(Connection):
     #
     # Receive data from peer.
     #
-    def receive(self, encoding='utf8'):
-        return self._decode(self._serial.read(1), encoding)
+    def receive(self, buffer_size=1, encoding='utf8'):
+        return self._decode(self._serial.read(buffer_size), encoding)
+
+    #
+    # Receive a single line of text from peer.
+    #
+    def receive_line(self, buffer_size=None, encoding='utf8'):
+        return self._receive_line(1, buffer_size, encoding)
 
 
 #
@@ -62,13 +71,15 @@ class _SerialServer(Server):
         self._serial.port = self._address
         while True:
             self._serial.open()
+            self._serial.reset_input_buffer()
+            self._serial.reset_output_buffer()
             pid = os.fork()
             if pid == 0:
                 status = 0                                             # Path executed in the child process.
                 try:
                     status = self._handler(_SerialConnection(self._serial))
                 except Exception as e:
-                    UNUSED(e)
+                    logging.exception(e)
                 finally:
                     if not isinstance(status, int):
                         status = 0                                     # When status is not integral, overrule.

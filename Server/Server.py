@@ -1,4 +1,5 @@
 import serial
+from io import StringIO
 from .Errors import *
 from .Errors import _error2string
 
@@ -68,11 +69,11 @@ class Server(object):
 #
 class Connection(object):
     def __init__(self):
-        pass
+        self._line_buffer = ''
 
     #
     # Encode a buffer for sending. Raise an exception
-    # when buffer type is invalid.
+    # when buffer has an invalid type.
     #
     @staticmethod
     def _encode(buffer, encoding='utf8'):
@@ -81,30 +82,72 @@ class Connection(object):
         return bytes(buffer, encoding)
 
     #
-    # Decode a received buffer. Raise an exception
-    # when the buffer type is invalid.
+    # Decode a received buffer. Raise an exception when
+    # buffer has an invalid type. When encoding is not
+    # None, the buffer is decoded and the universal newlines
+    # are replaced by '\n'.
     #
     @staticmethod
     def _decode(buffer, encoding='utf8'):
         if not isinstance(buffer, (bytes, bytearray, memoryview)):
             raise ServerError(E_INVALID_BUFFER_TYPE, _error2string[E_INVALID_BUFFER_TYPE])
         if encoding is not None:
-            decoded = str(buffer, encoding)
+            decoded = StringIO(str(buffer, encoding), newline=None)
+            decoded = decoded.getvalue()
         else:
             decoded = bytes(buffer)
         return decoded
 
     #
-    # Send buffer to peer. The buffer is expected
-    # to be a string, which is utf8 encoded before
-    # sending.
+    # Receive a single line of text from peer; read
+    # max chunk-size bytes at once.
     #
-    def sendall(self, buffer, encoding='utf8'):
+    def _receive_line(self, chunk_size, buffer_size=None, encoding='utf8'):
+        if encoding is None:
+            raise ServerError(E_INVALID_ENCODING_NONE, _error2string[E_INVALID_ENCODING_NONE])
+        pos = self._line_buffer.find('\n')
+        while pos < 0:
+            self._line_buffer += self.receive(chunk_size, encoding)
+            pos = self._line_buffer.find('\n')
+            if buffer_size is not None and len(self._line_buffer) > buffer_size and pos > buffer_size:
+                pos = buffer_size - 1
+        line = self._line_buffer[:pos + 1]
+        self._line_buffer = self._line_buffer[pos + 1:]
+        return line
+
+    #
+    # Send buffer to peer. If the encoding is not None,
+    # the buffer is encoded using the specified encoding.
+    # Otherwise the buffer is expected to be a bytes-object.
+    #
+    def send(self, buffer, encoding='utf8'):
         raise NotImplementedError("%s: The sendall() method shall be implemented in a subclass" % type(self).__name__)
 
     #
-    # Receive data from peer. The data is expected to
-    # to be utf8 encoded and is return as a string.
+    # Receive data from peer. If encoding is not None,
+    # the buffer is decoded using the specified encoding.
+    # Otherwise a bytes() object is returned.
     #
-    def receive(self, encoding='utf8'):
+    def receive(self, buffer_size=1024, encoding='utf8'):
         raise NotImplementedError("%s: The receive() method shall be implemented in a subclass" % type(self).__name__)
+
+    #
+    # Receive a single line of text from peer. The encoding
+    # must be a valid and cannot be None. If buffer size is
+    # None, the line length is unlimited. If a buffer size
+    # is specified, the return line may be truncated in this
+    # situation the line may not contain a newline character.
+    #
+    def receive_line(self, buffer_size=None, encoding='utf8'):
+        raise NotImplementedError("%s: The receive_line() method shall be implemented in a subclass" % type(self).__name__)
+
+    #
+    # Receive one or more lines of text from peer. The encoding
+    # must be a valid and cannot be None. If buffer size is
+    # None, the line length is unlimited. If a buffer size
+    # is specified, the return line may be truncated in this
+    # situation the line may not contain a newline character.
+    #
+    def receive_lines(self, buffer_size=None, encoding='utf8'):
+        while True:
+            yield self.receive_line(buffer_size, encoding)
