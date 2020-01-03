@@ -92,7 +92,7 @@ class Connection(object):
         if not isinstance(buffer, (bytes, bytearray, memoryview)):
             raise ServerError(E_INVALID_BUFFER_TYPE, _error2string[E_INVALID_BUFFER_TYPE])
         if encoding is not None:
-            decoded = StringIO(str(buffer, encoding), newline=None)
+            decoded = StringIO(str(buffer, encoding, errors='replace'), newline=None)
             decoded = decoded.getvalue()
         else:
             decoded = bytes(buffer)
