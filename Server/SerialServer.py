@@ -2,7 +2,7 @@ import os
 import errno
 import serial
 import logging
-from .Server import Server, Connection, ServerError, UNUSED
+from .Server import Server, Connection, UNUSED
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
