@@ -105,14 +105,14 @@ class Connection(object):
     def _receive_line(self, chunk_size, buffer_size=None, encoding='utf8'):
         if encoding is None:
             raise ServerError(E_INVALID_ENCODING_NONE, _error2string[E_INVALID_ENCODING_NONE])
-        pos = self._line_buffer.find('\n')
-        while pos < 0:
+        nl = self._line_buffer.find('\n')
+        while nl < 0:
             self._line_buffer += self.receive(chunk_size, encoding)
-            pos = self._line_buffer.find('\n')
-            if buffer_size is not None and len(self._line_buffer) > buffer_size and pos > buffer_size:
-                pos = buffer_size - 1
-        line = self._line_buffer[:pos + 1]
-        self._line_buffer = self._line_buffer[pos + 1:]
+            nl = self._line_buffer.find('\n')
+            if buffer_size is not None and len(self._line_buffer) > buffer_size and (nl > buffer_size or nl < 0):
+                nl = buffer_size - 1
+        line = self._line_buffer[:nl + 1]
+        self._line_buffer = self._line_buffer[nl + 1:]
         return line
 
     #
@@ -121,7 +121,7 @@ class Connection(object):
     # Otherwise the buffer is expected to be a bytes-object.
     #
     def send(self, buffer, encoding='utf8'):
-        raise NotImplementedError("%s: The sendall() method shall be implemented in a subclass" % type(self).__name__)
+        raise NotImplementedError("%s: The send() method shall be implemented in a subclass" % type(self).__name__)
 
     #
     # Receive data from peer. If encoding is not None,
