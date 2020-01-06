@@ -51,15 +51,15 @@ class Server(object):
         #
         # Avoid circular imports.
         #
-        from .SocketServer import _TCPSocketServer, _UNIXSocketServer
-        from .SerialServer import _SerialServer
+        from .SocketServer import _ForkingTCPSocketServer, _ForkingUNIXSocketServer
+        from .SerialServer import _ForkingSerialServer
         #
         # Map a server type to an instance of a corresponding server class.
         #
         _server_type2class = {
-            'tcp': lambda _handler, address, port, max_connections=1: _TCPSocketServer(_handler, address, port, max_connections),
-            'unix': lambda _handler, path, max_connections=1: _UNIXSocketServer(_handler, path, max_connections),
-            'serial': lambda _handler, port, baudrate=9600, bytesize=serial.EIGHTBITS, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, timeout=None, xonxoff=False, rtscts=False, write_timeout=None, dsrdtr=False, inter_byte_timeout=None, exclusive=None: _SerialServer(_handler, port, baudrate, bytesize, parity, stopbits, timeout, xonxoff, rtscts, write_timeout, dsrdtr, inter_byte_timeout, exclusive)
+            'tcp': lambda _handler, address, port, max_connections=1: _ForkingTCPSocketServer(_handler, address, port, max_connections),
+            'unix': lambda _handler, path, max_connections=1: _ForkingUNIXSocketServer(_handler, path, max_connections),
+            'serial': lambda _handler, port, baudrate=9600, bytesize=serial.EIGHTBITS, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, timeout=None, xonxoff=False, rtscts=False, write_timeout=None, dsrdtr=False, inter_byte_timeout=None, exclusive=None: _ForkingSerialServer(_handler, port, baudrate, bytesize, parity, stopbits, timeout, xonxoff, rtscts, write_timeout, dsrdtr, inter_byte_timeout, exclusive)
         }
         return _server_type2class[server_type.lower()](handler, *args, **kwargs)
 
@@ -103,6 +103,8 @@ class Connection(object):
     # max chunk-size bytes at once.
     #
     def _receive_line(self, chunk_size, buffer_size=None, encoding='utf8'):
+        if buffer_size is not None:
+            buffer_size = max(1, buffer_size)                                          # Buffer size is at least 1 byte.
         if encoding is None:
             raise ServerError(E_INVALID_ENCODING_NONE, _error2string[E_INVALID_ENCODING_NONE])
         nl = self._line_buffer.find('\n')

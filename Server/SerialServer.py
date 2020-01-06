@@ -29,6 +29,7 @@ class _SerialConnection(Connection):
     # Receive data from peer.
     #
     def receive(self, buffer_size=1, encoding='utf8'):
+        buffer_size = max(1, buffer_size)                                              # Buffer size is at least 1 byte.
         return self._decode(self._serial.read(buffer_size), encoding)
 
     #
@@ -41,12 +42,12 @@ class _SerialConnection(Connection):
 #
 # Define a serial server.
 #
-class _SerialServer(Server):
+class _ForkingSerialServer(Server):
     #
     # Initialize serial port, but do not open it yet.
     #
     def __init__(self, handler, port, baudrate, bytesize, parity, stopbits, timeout, xonxoff, rtscts, write_timeout, dsrdtr, inter_byte_timeout, exclusive):
-        super(_SerialServer, self).__init__(port, handler)
+        super(_ForkingSerialServer, self).__init__(port, handler)
         self._serial = serial.Serial(None, baudrate, bytesize, parity, stopbits, timeout, xonxoff, rtscts, write_timeout, dsrdtr, inter_byte_timeout, exclusive)
 
     #

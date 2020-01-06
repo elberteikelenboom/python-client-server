@@ -31,6 +31,7 @@ class _SocketConnection(Connection):
     # Receive data from peer.
     #
     def receive(self, buffer_size=1024, encoding='utf8'):
+        buffer_size = max(1, buffer_size)                                              # Buffer size is at least 1 byte.
         buffer = self._socket.recv(buffer_size)
         if len(buffer) == 0:
             raise socket.error(errno.ECONNRESET, os.strerror(errno.ECONNRESET))
@@ -69,6 +70,14 @@ class _SocketServer(Server):
         except Exception as e:
             UNUSED(e)
 
+    #
+    # Abstract method that must be defined in a subclass.
+    #
+    def serve_forever(self):
+        raise NotImplementedError("%s: The serve_forever() method shall be implemented in a subclass" % type(self).__name__)
+
+
+class _ForkingSocketServer(_SocketServer):
     #
     # Run the socket server forever. For each connection fork()
     # a new process and run the connection handler. Do not accept
@@ -137,13 +146,13 @@ class _SocketServer(Server):
 #
 # Define a TCP/IP socket server.
 #
-class _TCPSocketServer(_SocketServer):
+class _ForkingTCPSocketServer(_ForkingSocketServer):
     def __init__(self, handler, address, port, max_connections):
         if not self._is_ip_address(address):
             raise ServerError(E_INVALID_IP_ADDRESS, _error2string[E_INVALID_IP_ADDRESS] % address)
         if not isinstance(port, int):
             raise ServerError(E_INTEGRAL_PORT, _error2string[E_INTEGRAL_PORT] % port)
-        super(_TCPSocketServer, self).__init__(socket.AF_INET, socket.SOCK_STREAM, (address, port), handler, max_connections)
+        super(_ForkingTCPSocketServer, self).__init__(socket.AF_INET, socket.SOCK_STREAM, (address, port), handler, max_connections)
 
     #
     # Return True when address is a valid IPv4 address.
@@ -162,13 +171,13 @@ class _TCPSocketServer(_SocketServer):
 #
 # Define a Unix socket server.
 #
-class _UNIXSocketServer(_SocketServer):
+class _ForkingUNIXSocketServer(_ForkingSocketServer):
     def __init__(self, handler, path, max_connections):
         if self._is_socket(path):
             os.remove(path)
         elif os.path.exists(path):
             raise ServerError(E_PATH_EXISTS_BUT_NOT_SOCKET, _error2string[E_PATH_EXISTS_BUT_NOT_SOCKET] % path)
-        super(_UNIXSocketServer, self).__init__(socket.AF_UNIX, socket.SOCK_STREAM, path, handler, max_connections)
+        super(_ForkingUNIXSocketServer, self).__init__(socket.AF_UNIX, socket.SOCK_STREAM, path, handler, max_connections)
 
     #
     # Return True if path refers to a Unix socket.
