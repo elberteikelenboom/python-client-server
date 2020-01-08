@@ -153,9 +153,9 @@ class _ThreadingSerialServer(_SerialServer):
             return self._status
 
     #
-    # Run the socket server forever. For each connection fork()
-    # a new process and run the connection handler. Do not accept
-    # more then 1 connection at the same time.
+    # Run the socket server forever. For each connection create
+    # a new thread and run the connection handler in it. Do not
+    # accept more then 1 connection at the same time.
     #
     # When the handler exits, the connection is closed. When the handler
     # as an integral return value, it is returned to the parent process.
@@ -173,4 +173,7 @@ class _ThreadingSerialServer(_SerialServer):
             logger.info("%s: serve_forever() -- Maximum number of connections (%d) reached.", type(self).__name__, 1)
             thread.start()
             thread.join()
+            #
+            # Here, thread.status contains the handler's exit status.
+            #
             self._close_connection()                                           # When the child has exited, close the connection.
