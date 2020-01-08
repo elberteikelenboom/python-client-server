@@ -3,6 +3,7 @@ import stat
 import errno
 import time
 import socket
+import threading
 import logging
 from .Server import Server, Connection, ServerError, UNUSED
 from .Errors import *
@@ -71,12 +72,39 @@ class _SocketServer(Server):
             UNUSED(e)
 
     #
+    # Return True when address is a valid IPv4 address.
+    #
+    @staticmethod
+    def _is_ip_address(address):
+        try:
+            socket.inet_aton(address)
+        except OSError:
+            is_address = False
+        else:
+            is_address = True
+        return is_address
+
+    #
+    # Return True if path refers to a Unix socket.
+    #
+    @staticmethod
+    def _is_socket(path):
+        is_socket = False
+        if os.path.exists(path):
+            mode = os.stat(path).st_mode
+            is_socket = stat.S_ISSOCK(mode)
+        return is_socket
+
+    #
     # Abstract method that must be defined in a subclass.
     #
     def serve_forever(self):
         raise NotImplementedError("%s: The serve_forever() method shall be implemented in a subclass" % type(self).__name__)
 
 
+#
+# Define a forking socket server.
+#
 class _ForkingSocketServer(_SocketServer):
     #
     # Run the socket server forever. For each connection fork()
@@ -84,12 +112,12 @@ class _ForkingSocketServer(_SocketServer):
     # more then _max_connections at the same time.
     #
     # When the handler exits, the connection is shutdown/closed. When
-    # the handler as an integral return value, it is returned to the
+    # the handler returns an integral return value, it is returned to the
     # parent process. Otherwise the return value is set to 0.
     #
     def serve_forever(self):
-        self._socket.listen(1)
         children = []
+        self._socket.listen(1)
         while True:
             logger.info("%s: serve_forever() -- Accepting connections at: %s.", type(self).__name__, str(self._address))
             connection, address = self._socket.accept()
@@ -97,15 +125,17 @@ class _ForkingSocketServer(_SocketServer):
             if pid == 0:
                 status = 0                                             # Path executed in the child process.
                 try:
-                    #
-                    # Call the connection handler.
-                    #
-                    logger.info("%s: serve_forever() -- Incoming connection from: %s.", type(self).__name__, str(address))
-                    status = self._handler(_SocketConnection(connection, address))
-                except socket.error as e:
-                    if e.errno == errno.ECONNRESET:
-                        logger.error("%s: serve_forever() -- %s.", type(self).__name__, e)
-                    raise e
+                    try:
+                        #
+                        # Call the connection handler.
+                        #
+                        logger.info("%s: serve_forever() -- Incoming connection from: %s.", type(self).__name__, str(address))
+                        status = self._handler(_SocketConnection(connection, address))
+                    except socket.error as e:
+                        if e.errno != errno.ECONNRESET:
+                            logger.error("%s: serve_forever() -- %s.", type(self).__name__, e)
+                        else:
+                            raise e
                 except Exception as e:
                     logger.exception("%s: serve_forever() -- %s", type(self).__name__, e)
                 finally:
@@ -144,7 +174,87 @@ class _ForkingSocketServer(_SocketServer):
 
 
 #
-# Define a TCP/IP socket server.
+# Define a threading socket server.
+#
+class _ThreadingSocketServer(_SocketServer):
+    #
+    # Define the thread that runs the connection handler.
+    #
+    class HandlerThread(threading.Thread):
+        # noinspection PyDefaultArgument
+        def __init__(self, group=None, target=None, name=None, args=(), kwargs={}, *, daemon=None):
+            super(_ThreadingSocketServer.HandlerThread, self).__init__(group=group, target=None, name=name, args=args, kwargs=kwargs, daemon=daemon)
+            self._connection, self._close_connection, self._address = args
+            self._target = target
+            self._status = 0
+
+        #
+        # Run the handler, catch the exit status and handle exceptions.
+        #
+        def run(self):
+            try:
+                try:
+                    self._status = self._target(self._connection)
+                except socket.error as e:
+                    if e.errno == errno.ECONNRESET:
+                        logger.error("%s: serve_forever() -- %s.", type(self).__name__, e)
+                    else:
+                        raise e
+            except Exception as e:
+                logger.exception("%s: serve_forever() -- %s", type(self).__name__, e)
+            finally:
+                logger.info("%s: serve_forever() -- Closed connection from: %s.", type(self).__name__, str(self._address))
+                self._close_connection(self._connection)                       # Always shutdown/close the connection properly.
+                if not isinstance(self._status, int):
+                    self._status = 0
+
+        #
+        # Return the exit status of the handler.
+        #
+        @property
+        def status(self):
+            return self._status
+
+    #
+    # Run the socket server forever. For each connection create
+    # a new thread and run the connection handler in it. Do not accept
+    # more then _max_connections at the same time.
+    #
+    # When the handler exits, the connection is shutdown/closed. When
+    # the handler returns an integral return value, it is returned to the
+    # parent process. Otherwise the return value is set to 0.
+    #
+    def serve_forever(self):
+        threads = []
+        self._socket.listen(1)
+        while True:
+            logger.info("%s: serve_forever() -- Accepting connections at: %s.", type(self).__name__, str(self._address))
+            connection, address = self._socket.accept()
+            #
+            # Start the connection handler in a new thread.
+            #
+            logger.info("%s: serve_forever() -- Incoming connection from: %s.", type(self).__name__, str(address))
+            thread = _ThreadingSocketServer.HandlerThread(target=self._handler, args=(_SocketConnection(connection, address), self._close_connection, address))
+            thread.start()
+            threads.append(thread)
+            log_max_connections = True
+            while True:
+                for thread in threads[:]:
+                    if not thread.is_alive():
+                        #
+                        # Here, thread.status contains the handler's exit status.
+                        #
+                        threads.remove(thread)
+                if len(threads) < self._max_connections:
+                    break
+                if log_max_connections:
+                    logger.info("%s: serve_forever() -- Maximum number of connections (%d) reached.", type(self).__name__, self._max_connections)
+                    log_max_connections = False
+                time.sleep(0.1)                                        # Throttle.
+
+
+#
+# Define a forking TCP/IP socket server.
 #
 class _ForkingTCPSocketServer(_ForkingSocketServer):
     def __init__(self, handler, address, port, max_connections):
@@ -154,22 +264,9 @@ class _ForkingTCPSocketServer(_ForkingSocketServer):
             raise ServerError(E_INTEGRAL_PORT, _error2string[E_INTEGRAL_PORT] % port)
         super(_ForkingTCPSocketServer, self).__init__(socket.AF_INET, socket.SOCK_STREAM, (address, port), handler, max_connections)
 
-    #
-    # Return True when address is a valid IPv4 address.
-    #
-    @staticmethod
-    def _is_ip_address(address):
-        try:
-            socket.inet_aton(address)
-        except OSError:
-            is_address = False
-        else:
-            is_address = True
-        return is_address
-
 
 #
-# Define a Unix socket server.
+# Define a forking Unix socket server.
 #
 class _ForkingUNIXSocketServer(_ForkingSocketServer):
     def __init__(self, handler, path, max_connections):
@@ -179,13 +276,26 @@ class _ForkingUNIXSocketServer(_ForkingSocketServer):
             raise ServerError(E_PATH_EXISTS_BUT_NOT_SOCKET, _error2string[E_PATH_EXISTS_BUT_NOT_SOCKET] % path)
         super(_ForkingUNIXSocketServer, self).__init__(socket.AF_UNIX, socket.SOCK_STREAM, path, handler, max_connections)
 
-    #
-    # Return True if path refers to a Unix socket.
-    #
-    @staticmethod
-    def _is_socket(path):
-        is_socket = False
-        if os.path.exists(path):
-            mode = os.stat(path).st_mode
-            is_socket = stat.S_ISSOCK(mode)
-        return is_socket
+
+#
+# Define a threading TCP/IP socket server.
+#
+class _ThreadingTCPSocketServer(_ThreadingSocketServer):
+    def __init__(self, handler, address, port, max_connections):
+        if not self._is_ip_address(address):
+            raise ServerError(E_INVALID_IP_ADDRESS, _error2string[E_INVALID_IP_ADDRESS] % address)
+        if not isinstance(port, int):
+            raise ServerError(E_INTEGRAL_PORT, _error2string[E_INTEGRAL_PORT] % port)
+        super(_ThreadingTCPSocketServer, self).__init__(socket.AF_INET, socket.SOCK_STREAM, (address, port), handler, max_connections)
+
+
+#
+# Define a threading Unix socket server.
+#
+class _ThreadingUNIXSocketServer(_ThreadingSocketServer):
+    def __init__(self, handler, path, max_connections):
+        if self._is_socket(path):
+            os.remove(path)
+        elif os.path.exists(path):
+            raise ServerError(E_PATH_EXISTS_BUT_NOT_SOCKET, _error2string[E_PATH_EXISTS_BUT_NOT_SOCKET] % path)
+        super(_ThreadingUNIXSocketServer, self).__init__(socket.AF_UNIX, socket.SOCK_STREAM, path, handler, max_connections)

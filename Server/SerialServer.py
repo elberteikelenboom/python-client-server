@@ -1,6 +1,7 @@
 import os
 import errno
 import serial
+import threading
 import logging
 from .Server import Server, Connection, UNUSED
 
@@ -40,14 +41,14 @@ class _SerialConnection(Connection):
 
 
 #
-# Define a serial server.
+# Define a serial server base class.
 #
-class _ForkingSerialServer(Server):
+class _SerialServer(Server):
     #
     # Initialize serial port, but do not open it yet.
     #
     def __init__(self, handler, port, baudrate, bytesize, parity, stopbits, timeout, xonxoff, rtscts, write_timeout, dsrdtr, inter_byte_timeout, exclusive):
-        super(_ForkingSerialServer, self).__init__(port, handler)
+        super(_SerialServer, self).__init__(port, handler)
         self._serial = serial.Serial(None, baudrate, bytesize, parity, stopbits, timeout, xonxoff, rtscts, write_timeout, dsrdtr, inter_byte_timeout, exclusive)
 
     #
@@ -60,6 +61,17 @@ class _ForkingSerialServer(Server):
         except Exception as e:
             UNUSED(e)
 
+    #
+    # Abstract method that must be defined in a subclass.
+    #
+    def serve_forever(self):
+        raise NotImplementedError("%s: The serve_forever() method shall be implemented in a subclass" % type(self).__name__)
+
+
+#
+# Define a forking serial server.
+#
+class _ForkingSerialServer(_SerialServer):
     #
     # Run the socket server forever. For each connection fork()
     # a new process and run the connection handler. Do not accept
@@ -103,3 +115,62 @@ class _ForkingSerialServer(Server):
                     #
                 finally:
                     self._close_connection()                                   # When the child has exited, close the connection.
+
+
+#
+# Define a forking serial server.
+#
+class _ThreadingSerialServer(_SerialServer):
+    #
+    # Define the thread that runs the connection handler.
+    #
+    class HandlerThread(threading.Thread):
+        # noinspection PyDefaultArgument
+        def __init__(self, group=None, target=None, name=None, args=(), kwargs={}, *, daemon=None):
+            super(_ThreadingSerialServer.HandlerThread, self).__init__(group=group, target=None, name=name, args=args, kwargs=kwargs, daemon=daemon)
+            self._connection, = args
+            self._target = target
+            self._status = 0
+
+        #
+        # Run the handler, catch the exit status and handle exceptions.
+        #
+        def run(self):
+            try:
+                self._status = self._target(self._connection)
+            except Exception as e:
+                logger.exception("%s: serve_forever() -- %s", type(self).__name__, e)
+            finally:
+                logger.info("%s: serve_forever() -- Closed connection.", type(self).__name__)
+                if not isinstance(self._status, int):
+                    self._status = 0
+
+        #
+        # Return the exit status of the handler.
+        #
+        @property
+        def status(self):
+            return self._status
+
+    #
+    # Run the socket server forever. For each connection fork()
+    # a new process and run the connection handler. Do not accept
+    # more then 1 connection at the same time.
+    #
+    # When the handler exits, the connection is closed. When the handler
+    # as an integral return value, it is returned to the parent process.
+    # Otherwise the return value is set to 0.
+    #
+    def serve_forever(self):
+        self._serial.port = self._address
+        while True:
+            logger.info("%s: serve_forever() -- Accepting connections at: %s.", type(self).__name__, str(self._address))
+            self._serial.open()
+            self._serial.reset_input_buffer()
+            self._serial.reset_output_buffer()
+            logger.info("%s: serve_forever() -- Incoming connection.", type(self).__name__)
+            thread = _ThreadingSerialServer.HandlerThread(target=self._handler, args=(_SerialConnection(self._serial),))
+            logger.info("%s: serve_forever() -- Maximum number of connections (%d) reached.", type(self).__name__, 1)
+            thread.start()
+            thread.join()
+            self._close_connection()                                           # When the child has exited, close the connection.
