@@ -19,6 +19,9 @@ def main():
     # server = Server.create_threading('tcp', echo_server, '127.0.0.1', 8080, max_connections=2)
     # server = Server.create_threading('unix', echo_server, '/home/elbert/server', max_connections=2)
     # server = Server.create_threading('serial', echo_server, '/dev/ttyUSB0', rtscts=True)
+    # server = Server.create_iterative('tcp', echo_server, '127.0.0.1', 8080)
+    # server = Server.create_iterative('unix', echo_server, '/home/elbert/server')
+    # server = Server.create_iterative('serial', echo_server, '/dev/ttyUSB0', rtscts=True)
     server.serve_forever()
 
 

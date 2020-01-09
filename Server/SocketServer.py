@@ -184,7 +184,7 @@ class _ThreadingSocketServer(_SocketServer):
         # noinspection PyDefaultArgument
         def __init__(self, group=None, target=None, name=None, args=(), kwargs={}, *, daemon=None):
             super(_ThreadingSocketServer.HandlerThread, self).__init__(group=group, target=None, name=name, args=args, kwargs=kwargs, daemon=daemon)
-            self._connection, self._close_connection, self._address = args
+            self._connection, self._close_connection, self._socket, self._address = args
             self._target = target
             self._status = 0
 
@@ -204,7 +204,7 @@ class _ThreadingSocketServer(_SocketServer):
                 logger.exception("%s: serve_forever() -- %s", type(self).__name__, e)
             finally:
                 logger.info("%s: serve_forever() -- Closed connection from: %s.", type(self).__name__, str(self._address))
-                self._close_connection(self._connection)                       # Always shutdown/close the connection properly.
+                self._close_connection(self._socket)                           # Always shutdown/close the connection properly.
                 if not isinstance(self._status, int):
                     self._status = 0
 
@@ -234,7 +234,7 @@ class _ThreadingSocketServer(_SocketServer):
             # Start the connection handler in a new thread.
             #
             logger.info("%s: serve_forever() -- Incoming connection from: %s.", type(self).__name__, str(address))
-            thread = _ThreadingSocketServer.HandlerThread(target=self._handler, args=(_SocketConnection(connection, address), self._close_connection, address))
+            thread = _ThreadingSocketServer.HandlerThread(target=self._handler, args=(_SocketConnection(connection, address), self._close_connection, connection, address))
             thread.start()
             threads.append(thread)
             log_max_connections = True
@@ -251,6 +251,46 @@ class _ThreadingSocketServer(_SocketServer):
                     logger.info("%s: serve_forever() -- Maximum number of connections (%d) reached.", type(self).__name__, self._max_connections)
                     log_max_connections = False
                 time.sleep(0.1)                                        # Throttle.
+
+
+#
+# Define an iterative socket server.
+#
+class _IterativeSocketServer(_SocketServer):
+    #
+    # Run the socket server forever. Accept a connection, handle it and
+    # then handle the next connection. Do not fork() nor create threads.
+    #
+    # When the handler exits, the connection is shutdown/closed. When
+    # the handler returns an integral return value, it is returned to the
+    # parent process. Otherwise the return value is set to 0.
+    #
+    def serve_forever(self):
+        self._socket.listen(1)
+        while True:
+            logger.info("%s: serve_forever() -- Accepting connections at: %s.", type(self).__name__, str(self._address))
+            connection, address = self._socket.accept()
+            status = 0                                                 # Path executed in the child process.
+            try:
+                try:
+                    #
+                    # Call the connection handler.
+                    #
+                    logger.info("%s: serve_forever() -- Incoming connection from: %s.", type(self).__name__, str(address))
+                    status = self._handler(_SocketConnection(connection, address))
+                except socket.error as e:
+                    if e.errno != errno.ECONNRESET:
+                        logger.error("%s: serve_forever() -- %s.", type(self).__name__, e)
+                    else:
+                        raise e
+            except Exception as e:
+                logger.exception("%s: serve_forever() -- %s", type(self).__name__, e)
+            finally:
+                logger.info("%s: serve_forever() -- Closed connection from: %s.", type(self).__name__, str(address))
+                self._close_connection(connection)                     # Always shutdown/close the connection properly.
+                if not isinstance(status, int):
+                    status = 0                                         # When status is not integral, overrule.
+            UNUSED(status)
 
 
 #
@@ -299,3 +339,27 @@ class _ThreadingUNIXSocketServer(_ThreadingSocketServer):
         elif os.path.exists(path):
             raise ServerError(E_PATH_EXISTS_BUT_NOT_SOCKET, _error2string[E_PATH_EXISTS_BUT_NOT_SOCKET] % path)
         super(_ThreadingUNIXSocketServer, self).__init__(socket.AF_UNIX, socket.SOCK_STREAM, path, handler, max_connections)
+
+
+#
+# Define an iterative TCP/IP socket server.
+#
+class _IterativeTCPSocketServer(_IterativeSocketServer):
+    def __init__(self, handler, address, port):
+        if not self._is_ip_address(address):
+            raise ServerError(E_INVALID_IP_ADDRESS, _error2string[E_INVALID_IP_ADDRESS] % address)
+        if not isinstance(port, int):
+            raise ServerError(E_INTEGRAL_PORT, _error2string[E_INTEGRAL_PORT] % port)
+        super(_IterativeSocketServer, self).__init__(socket.AF_INET, socket.SOCK_STREAM, (address, port), handler, 1)
+
+
+#
+# Define an iterative Unix socket server.
+#
+class _IterativeUNIXSocketServer(_IterativeSocketServer):
+    def __init__(self, handler, path):
+        if self._is_socket(path):
+            os.remove(path)
+        elif os.path.exists(path):
+            raise ServerError(E_PATH_EXISTS_BUT_NOT_SOCKET, _error2string[E_PATH_EXISTS_BUT_NOT_SOCKET] % path)
+        super(_IterativeUNIXSocketServer, self).__init__(socket.AF_UNIX, socket.SOCK_STREAM, path, handler, 1)

@@ -73,7 +73,7 @@ class _SerialServer(Server):
 #
 class _ForkingSerialServer(_SerialServer):
     #
-    # Run the socket server forever. For each connection fork()
+    # Run the serial server forever. For each connection fork()
     # a new process and run the connection handler. Do not accept
     # more then 1 connection at the same time.
     #
@@ -118,7 +118,7 @@ class _ForkingSerialServer(_SerialServer):
 
 
 #
-# Define a forking serial server.
+# Define a threading serial server.
 #
 class _ThreadingSerialServer(_SerialServer):
     #
@@ -153,7 +153,7 @@ class _ThreadingSerialServer(_SerialServer):
             return self._status
 
     #
-    # Run the socket server forever. For each connection create
+    # Run the serial server forever. For each connection create
     # a new thread and run the connection handler in it. Do not
     # accept more then 1 connection at the same time.
     #
@@ -177,3 +177,36 @@ class _ThreadingSerialServer(_SerialServer):
             # Here, thread.status contains the handler's exit status.
             #
             self._close_connection()                                           # When the child has exited, close the connection.
+
+
+#
+# Define a iterative serial server.
+#
+class _IterativeSerialServer(_SerialServer):
+    #
+    # Run the serial server forever. Accept a connection, handle it and
+    # then handle the next connection. Do not fork() nor create threads.
+    #
+    # When the handler exits, the connection is closed. When the handler
+    # as an integral return value, it is returned to the parent process.
+    # Otherwise the return value is set to 0.
+    #
+    def serve_forever(self):
+        self._serial.port = self._address
+        while True:
+            logger.info("%s: serve_forever() -- Accepting connections at: %s.", type(self).__name__, str(self._address))
+            self._serial.open()
+            self._serial.reset_input_buffer()
+            self._serial.reset_output_buffer()
+            status = 0
+            try:
+                logger.info("%s: serve_forever() -- Incoming connection.", type(self).__name__)
+                status = self._handler(_SerialConnection(self._serial))
+            except Exception as e:
+                logger.exception("%s: serve_forever() -- %s", type(self).__name__, e)
+            finally:
+                logger.info("%s: serve_forever() -- Closed connection.", type(self).__name__)
+                self._close_connection()                                       # When the child has exited, close the connection.
+                if not isinstance(status, int):
+                    status = 0                                                 # When status is not integral, overrule.
+            UNUSED(status)

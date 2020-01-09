@@ -64,7 +64,7 @@ class Server(object):
         return _server_type2class[server_type.lower()](handler, *args, **kwargs)
 
     #
-    # Return a forking server instance corresponding to the specified server type.
+    # Return a threading server instance corresponding to the specified server type.
     # The specified server type is case insensitive and can be one of:
     #
     # * tcp : create a TCP/IP socket server.
@@ -85,6 +85,31 @@ class Server(object):
             'tcp': lambda _handler, address, port, max_connections=1: _ThreadingTCPSocketServer(_handler, address, port, max_connections),
             'unix': lambda _handler, path, max_connections=1: _ThreadingUNIXSocketServer(_handler, path, max_connections),
             'serial': lambda _handler, port, baudrate=9600, bytesize=serial.EIGHTBITS, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, timeout=None, xonxoff=False, rtscts=False, write_timeout=None, dsrdtr=False, inter_byte_timeout=None, exclusive=None: _ThreadingSerialServer(_handler, port, baudrate, bytesize, parity, stopbits, timeout, xonxoff, rtscts, write_timeout, dsrdtr, inter_byte_timeout, exclusive)
+        }
+        return _server_type2class[server_type.lower()](handler, *args, **kwargs)
+
+    #
+    # Return an iterative server instance corresponding to the specified server type.
+    # The specified server type is case insensitive and can be one of:
+    #
+    # * tcp : create a TCP/IP socket server.
+    # * unix: create a UNIX domain socket server.
+    # * serial: create a serial port server.
+    #
+    @classmethod
+    def create_iterative(cls, server_type, handler, *args, **kwargs):
+        #
+        # Avoid circular imports.
+        #
+        from .SocketServer import _IterativeTCPSocketServer, _IterativeUNIXSocketServer
+        from .SerialServer import _IterativeSerialServer
+        #
+        # Map a server type to an instance of a corresponding server class.
+        #
+        _server_type2class = {
+            'tcp': lambda _handler, address, port: _IterativeTCPSocketServer(_handler, address, port),
+            'unix': lambda _handler, path: _IterativeUNIXSocketServer(_handler, path),
+            'serial': lambda _handler, port, baudrate=9600, bytesize=serial.EIGHTBITS, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, timeout=None, xonxoff=False, rtscts=False, write_timeout=None, dsrdtr=False, inter_byte_timeout=None, exclusive=None: _IterativeSerialServer(_handler, port, baudrate, bytesize, parity, stopbits, timeout, xonxoff, rtscts, write_timeout, dsrdtr, inter_byte_timeout, exclusive)
         }
         return _server_type2class[server_type.lower()](handler, *args, **kwargs)
 
