@@ -5,44 +5,13 @@ import time
 import socket
 import threading
 import logging
-from .Server import Server, Connection, ServerError, UNUSED
+from Connection import Connection
+from .Server import Server, ServerError, UNUSED
 from .Errors import *
 from .Errors import _error2string
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
-
-#
-# Define a socket connection.
-#
-class _SocketConnection(Connection):
-    def __init__(self, socket_, address):
-        super(_SocketConnection, self).__init__()
-        self._socket = socket_
-        self._address = address
-
-    #
-    # Send buffer to peer.
-    #
-    def send(self, buffer, encoding='utf8'):
-        self._socket.sendall(self._encode(buffer, encoding))
-
-    #
-    # Receive data from peer.
-    #
-    def receive(self, buffer_size=1024, encoding='utf8'):
-        buffer_size = max(1, buffer_size)                                              # Buffer size is at least 1 byte.
-        buffer = self._socket.recv(buffer_size)
-        if len(buffer) == 0:
-            raise socket.error(errno.ECONNRESET, os.strerror(errno.ECONNRESET))
-        return self._decode(buffer, encoding)
-
-    #
-    # Receive a single line of text from peer.
-    #
-    def receive_line(self, buffer_size=None, encoding='utf8'):
-        return self._receive_line(1024, buffer_size, encoding)
 
 
 #
@@ -52,8 +21,8 @@ class _SocketServer(Server):
     #
     # Initialize a socket server.
     #
-    def __init__(self, family, type_, address, handler, max_connections):
-        super(_SocketServer, self).__init__(address, handler)
+    def __init__(self, server_type, family, type_, address, handler, max_connections):
+        super(_SocketServer, self).__init__(server_type, address, handler)
         self._socket = socket.socket(family, type_)
         self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._socket.bind(self._address)
@@ -130,7 +99,7 @@ class _ForkingSocketServer(_SocketServer):
                         # Call the connection handler.
                         #
                         logger.info("%s: serve_forever() -- Incoming connection from: %s.", type(self).__name__, str(address))
-                        status = self._handler(_SocketConnection(connection, address))
+                        status = self._handler(Connection.create(self._server_type, connection, address))
                     except socket.error as e:
                         if e.errno != errno.ECONNRESET:
                             logger.error("%s: serve_forever() -- %s.", type(self).__name__, e)
@@ -234,7 +203,7 @@ class _ThreadingSocketServer(_SocketServer):
             # Start the connection handler in a new thread.
             #
             logger.info("%s: serve_forever() -- Incoming connection from: %s.", type(self).__name__, str(address))
-            thread = _ThreadingSocketServer.HandlerThread(target=self._handler, args=(_SocketConnection(connection, address), self._close_connection, connection, address))
+            thread = _ThreadingSocketServer.HandlerThread(target=self._handler, args=(Connection.create(self._server_type, connection, address), self._close_connection, connection, address))
             thread.start()
             threads.append(thread)
             log_max_connections = True
@@ -277,7 +246,7 @@ class _IterativeSocketServer(_SocketServer):
                     # Call the connection handler.
                     #
                     logger.info("%s: serve_forever() -- Incoming connection from: %s.", type(self).__name__, str(address))
-                    status = self._handler(_SocketConnection(connection, address))
+                    status = self._handler(Connection.create(self._server_type, connection, address))
                 except socket.error as e:
                     if e.errno != errno.ECONNRESET:
                         logger.error("%s: serve_forever() -- %s.", type(self).__name__, e)
@@ -297,69 +266,69 @@ class _IterativeSocketServer(_SocketServer):
 # Define a forking TCP/IP socket server.
 #
 class _ForkingTCPSocketServer(_ForkingSocketServer):
-    def __init__(self, handler, address, port, max_connections):
+    def __init__(self, server_type, handler, address, port, max_connections):
         if not self._is_ip_address(address):
             raise ServerError(E_INVALID_IP_ADDRESS, _error2string[E_INVALID_IP_ADDRESS] % address)
         if not isinstance(port, int):
             raise ServerError(E_INTEGRAL_PORT, _error2string[E_INTEGRAL_PORT] % port)
-        super(_ForkingTCPSocketServer, self).__init__(socket.AF_INET, socket.SOCK_STREAM, (address, port), handler, max_connections)
+        super(_ForkingTCPSocketServer, self).__init__(server_type, socket.AF_INET, socket.SOCK_STREAM, (address, port), handler, max_connections)
 
 
 #
 # Define a forking Unix socket server.
 #
 class _ForkingUNIXSocketServer(_ForkingSocketServer):
-    def __init__(self, handler, path, max_connections):
+    def __init__(self, server_type, handler, path, max_connections):
         if self._is_socket(path):
             os.remove(path)
         elif os.path.exists(path):
             raise ServerError(E_PATH_EXISTS_BUT_NOT_SOCKET, _error2string[E_PATH_EXISTS_BUT_NOT_SOCKET] % path)
-        super(_ForkingUNIXSocketServer, self).__init__(socket.AF_UNIX, socket.SOCK_STREAM, path, handler, max_connections)
+        super(_ForkingUNIXSocketServer, self).__init__(server_type, socket.AF_UNIX, socket.SOCK_STREAM, path, handler, max_connections)
 
 
 #
 # Define a threading TCP/IP socket server.
 #
 class _ThreadingTCPSocketServer(_ThreadingSocketServer):
-    def __init__(self, handler, address, port, max_connections):
+    def __init__(self, server_type, handler, address, port, max_connections):
         if not self._is_ip_address(address):
             raise ServerError(E_INVALID_IP_ADDRESS, _error2string[E_INVALID_IP_ADDRESS] % address)
         if not isinstance(port, int):
             raise ServerError(E_INTEGRAL_PORT, _error2string[E_INTEGRAL_PORT] % port)
-        super(_ThreadingTCPSocketServer, self).__init__(socket.AF_INET, socket.SOCK_STREAM, (address, port), handler, max_connections)
+        super(_ThreadingTCPSocketServer, self).__init__(server_type, socket.AF_INET, socket.SOCK_STREAM, (address, port), handler, max_connections)
 
 
 #
 # Define a threading Unix socket server.
 #
 class _ThreadingUNIXSocketServer(_ThreadingSocketServer):
-    def __init__(self, handler, path, max_connections):
+    def __init__(self, server_type, handler, path, max_connections):
         if self._is_socket(path):
             os.remove(path)
         elif os.path.exists(path):
             raise ServerError(E_PATH_EXISTS_BUT_NOT_SOCKET, _error2string[E_PATH_EXISTS_BUT_NOT_SOCKET] % path)
-        super(_ThreadingUNIXSocketServer, self).__init__(socket.AF_UNIX, socket.SOCK_STREAM, path, handler, max_connections)
+        super(_ThreadingUNIXSocketServer, self).__init__(server_type, socket.AF_UNIX, socket.SOCK_STREAM, path, handler, max_connections)
 
 
 #
 # Define an iterative TCP/IP socket server.
 #
 class _IterativeTCPSocketServer(_IterativeSocketServer):
-    def __init__(self, handler, address, port):
+    def __init__(self, server_type, handler, address, port):
         if not self._is_ip_address(address):
             raise ServerError(E_INVALID_IP_ADDRESS, _error2string[E_INVALID_IP_ADDRESS] % address)
         if not isinstance(port, int):
             raise ServerError(E_INTEGRAL_PORT, _error2string[E_INTEGRAL_PORT] % port)
-        super(_IterativeSocketServer, self).__init__(socket.AF_INET, socket.SOCK_STREAM, (address, port), handler, 1)
+        super(_IterativeSocketServer, self).__init__(server_type, socket.AF_INET, socket.SOCK_STREAM, (address, port), handler, 1)
 
 
 #
 # Define an iterative Unix socket server.
 #
 class _IterativeUNIXSocketServer(_IterativeSocketServer):
-    def __init__(self, handler, path):
+    def __init__(self, server_type, handler, path):
         if self._is_socket(path):
             os.remove(path)
         elif os.path.exists(path):
             raise ServerError(E_PATH_EXISTS_BUT_NOT_SOCKET, _error2string[E_PATH_EXISTS_BUT_NOT_SOCKET] % path)
-        super(_IterativeUNIXSocketServer, self).__init__(socket.AF_UNIX, socket.SOCK_STREAM, path, handler, 1)
+        super(_IterativeUNIXSocketServer, self).__init__(server_type, socket.AF_UNIX, socket.SOCK_STREAM, path, handler, 1)

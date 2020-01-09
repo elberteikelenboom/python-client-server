@@ -3,41 +3,11 @@ import errno
 import serial
 import threading
 import logging
-from .Server import Server, Connection, UNUSED
+from Connection import Connection
+from .Server import Server, UNUSED
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
-
-#
-# Define a serial connection.
-#
-class _SerialConnection(Connection):
-    def __init__(self, serial_):
-        super(_SerialConnection, self).__init__()
-        self._serial = serial_
-
-    #
-    # Send buffer to peer.
-    #
-    def send(self, buffer, encoding='utf8'):
-        total = 0
-        while total < len(buffer):
-            sent = self._serial.write(self._encode(buffer[total:], encoding))
-            total += sent
-
-    #
-    # Receive data from peer.
-    #
-    def receive(self, buffer_size=1, encoding='utf8'):
-        buffer_size = max(1, buffer_size)                                              # Buffer size is at least 1 byte.
-        return self._decode(self._serial.read(buffer_size), encoding)
-
-    #
-    # Receive a single line of text from peer.
-    #
-    def receive_line(self, buffer_size=None, encoding='utf8'):
-        return self._receive_line(1, buffer_size, encoding)
 
 
 #
@@ -47,8 +17,8 @@ class _SerialServer(Server):
     #
     # Initialize serial port, but do not open it yet.
     #
-    def __init__(self, handler, port, baudrate, bytesize, parity, stopbits, timeout, xonxoff, rtscts, write_timeout, dsrdtr, inter_byte_timeout, exclusive):
-        super(_SerialServer, self).__init__(port, handler)
+    def __init__(self, server_type, handler, port, baudrate, bytesize, parity, stopbits, timeout, xonxoff, rtscts, write_timeout, dsrdtr, inter_byte_timeout, exclusive):
+        super(_SerialServer, self).__init__(server_type, port, handler)
         self._serial = serial.Serial(None, baudrate, bytesize, parity, stopbits, timeout, xonxoff, rtscts, write_timeout, dsrdtr, inter_byte_timeout, exclusive)
 
     #
@@ -93,7 +63,7 @@ class _ForkingSerialServer(_SerialServer):
                 status = 0                                                     # Path executed in the child process.
                 try:
                     logger.info("%s: serve_forever() -- Incoming connection.", type(self).__name__)
-                    status = self._handler(_SerialConnection(self._serial))
+                    status = self._handler(Connection.create(self._server_type, self._serial))
                 except Exception as e:
                     logger.exception("%s: serve_forever() -- %s", type(self).__name__, e)
                 finally:
@@ -169,7 +139,7 @@ class _ThreadingSerialServer(_SerialServer):
             self._serial.reset_input_buffer()
             self._serial.reset_output_buffer()
             logger.info("%s: serve_forever() -- Incoming connection.", type(self).__name__)
-            thread = _ThreadingSerialServer.HandlerThread(target=self._handler, args=(_SerialConnection(self._serial),))
+            thread = _ThreadingSerialServer.HandlerThread(target=self._handler, args=(Connection.create(self._server_type, self._serial),))
             logger.info("%s: serve_forever() -- Maximum number of connections (%d) reached.", type(self).__name__, 1)
             thread.start()
             thread.join()
@@ -201,7 +171,7 @@ class _IterativeSerialServer(_SerialServer):
             status = 0
             try:
                 logger.info("%s: serve_forever() -- Incoming connection.", type(self).__name__)
-                status = self._handler(_SerialConnection(self._serial))
+                status = self._handler(Connection.create(self._server_type, self._serial))
             except Exception as e:
                 logger.exception("%s: serve_forever() -- %s", type(self).__name__, e)
             finally:

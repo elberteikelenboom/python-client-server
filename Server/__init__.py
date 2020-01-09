@@ -1,2 +1,2 @@
-from .Server import Server, Connection, ServerError
+from .Server import Server, ServerError
 from .Errors import *
