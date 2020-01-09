@@ -101,7 +101,7 @@ class _ForkingSocketServer(_SocketServer):
                         logger.info("%s: serve_forever() -- Incoming connection from: %s.", type(self).__name__, str(address))
                         status = self._handler(Connection.create(self._server_type, connection, address))
                     except socket.error as e:
-                        if e.errno != errno.ECONNRESET:
+                        if e.errno == errno.ECONNRESET:
                             logger.error("%s: serve_forever() -- %s.", type(self).__name__, e)
                         else:
                             raise e
@@ -248,7 +248,7 @@ class _IterativeSocketServer(_SocketServer):
                     logger.info("%s: serve_forever() -- Incoming connection from: %s.", type(self).__name__, str(address))
                     status = self._handler(Connection.create(self._server_type, connection, address))
                 except socket.error as e:
-                    if e.errno != errno.ECONNRESET:
+                    if e.errno == errno.ECONNRESET:
                         logger.error("%s: serve_forever() -- %s.", type(self).__name__, e)
                     else:
                         raise e

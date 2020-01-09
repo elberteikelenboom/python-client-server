@@ -28,9 +28,9 @@ class Server(object):
     def __init__(self, server_type, address, handler):
         if not callable(handler):
             raise ServerError(E_HANDLER_NOT_CALLABLE, _error2string[E_HANDLER_NOT_CALLABLE])
+        self._server_type = server_type
         self._address = address
         self._handler = handler
-        self._server_type = server_type
 
     #
     # Abstract method that must be defined in a subclass.
@@ -59,8 +59,8 @@ class Server(object):
         server_type = server_type.lower()
         _server_type2class = {
             'tcp': lambda _handler, address, port, max_connections=1: _ForkingTCPSocketServer(server_type, _handler, address, port, max_connections),
-            'unix': lambda _handler, path, max_connections=1: _ForkingUNIXSocketServer(server_type,_handler, path, max_connections),
-            'serial': lambda _handler, port, baudrate=9600, bytesize=serial.EIGHTBITS, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, timeout=None, xonxoff=False, rtscts=False, write_timeout=None, dsrdtr=False, inter_byte_timeout=None, exclusive=None: _ForkingSerialServer(server_type,_handler, port, baudrate, bytesize, parity, stopbits, timeout, xonxoff, rtscts, write_timeout, dsrdtr, inter_byte_timeout, exclusive)
+            'unix': lambda _handler, path, max_connections=1: _ForkingUNIXSocketServer(server_type, _handler, path, max_connections),
+            'serial': lambda _handler, port, baudrate=9600, bytesize=serial.EIGHTBITS, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, timeout=None, xonxoff=False, rtscts=False, write_timeout=None, dsrdtr=False, inter_byte_timeout=None, exclusive=None: _ForkingSerialServer(server_type, _handler, port, baudrate, bytesize, parity, stopbits, timeout, xonxoff, rtscts, write_timeout, dsrdtr, inter_byte_timeout, exclusive)
         }
         return _server_type2class[server_type](handler, *args, **kwargs)
 
@@ -84,9 +84,9 @@ class Server(object):
         #
         server_type = server_type.lower()
         _server_type2class = {
-            'tcp': lambda _handler, address, port, max_connections=1: _ThreadingTCPSocketServer(server_type,_handler, address, port, max_connections),
-            'unix': lambda _handler, path, max_connections=1: _ThreadingUNIXSocketServer(server_type,_handler, path, max_connections),
-            'serial': lambda _handler, port, baudrate=9600, bytesize=serial.EIGHTBITS, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, timeout=None, xonxoff=False, rtscts=False, write_timeout=None, dsrdtr=False, inter_byte_timeout=None, exclusive=None: _ThreadingSerialServer(server_type,_handler, port, baudrate, bytesize, parity, stopbits, timeout, xonxoff, rtscts, write_timeout, dsrdtr, inter_byte_timeout, exclusive)
+            'tcp': lambda _handler, address, port, max_connections=1: _ThreadingTCPSocketServer(server_type, _handler, address, port, max_connections),
+            'unix': lambda _handler, path, max_connections=1: _ThreadingUNIXSocketServer(server_type, _handler, path, max_connections),
+            'serial': lambda _handler, port, baudrate=9600, bytesize=serial.EIGHTBITS, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, timeout=None, xonxoff=False, rtscts=False, write_timeout=None, dsrdtr=False, inter_byte_timeout=None, exclusive=None: _ThreadingSerialServer(server_type, _handler, port, baudrate, bytesize, parity, stopbits, timeout, xonxoff, rtscts, write_timeout, dsrdtr, inter_byte_timeout, exclusive)
         }
         return _server_type2class[server_type](handler, *args, **kwargs)
 
@@ -110,8 +110,8 @@ class Server(object):
         #
         server_type = server_type.lower()
         _server_type2class = {
-            'tcp': lambda _handler, address, port: _IterativeTCPSocketServer(server_type,_handler, address, port),
-            'unix': lambda _handler, path: _IterativeUNIXSocketServer(server_type,_handler, path),
-            'serial': lambda _handler, port, baudrate=9600, bytesize=serial.EIGHTBITS, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, timeout=None, xonxoff=False, rtscts=False, write_timeout=None, dsrdtr=False, inter_byte_timeout=None, exclusive=None: _IterativeSerialServer(server_type,_handler, port, baudrate, bytesize, parity, stopbits, timeout, xonxoff, rtscts, write_timeout, dsrdtr, inter_byte_timeout, exclusive)
+            'tcp': lambda _handler, address, port: _IterativeTCPSocketServer(server_type, _handler, address, port),
+            'unix': lambda _handler, path: _IterativeUNIXSocketServer(server_type, _handler, path),
+            'serial': lambda _handler, port, baudrate=9600, bytesize=serial.EIGHTBITS, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, timeout=None, xonxoff=False, rtscts=False, write_timeout=None, dsrdtr=False, inter_byte_timeout=None, exclusive=None: _IterativeSerialServer(server_type, _handler, port, baudrate, bytesize, parity, stopbits, timeout, xonxoff, rtscts, write_timeout, dsrdtr, inter_byte_timeout, exclusive)
         }
         return _server_type2class[server_type](handler, *args, **kwargs)
