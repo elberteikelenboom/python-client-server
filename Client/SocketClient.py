@@ -116,5 +116,5 @@ class _UNIXSocketClient(_SocketClient):
         if os.path.exists(path) and not self._is_socket(path):
             raise ClientError(E_PATH_EXISTS_BUT_NOT_SOCKET, _error2string[E_PATH_EXISTS_BUT_NOT_SOCKET] % path)
         elif not os.path.exists(path):
-            raise ClientError(E_PATH_DOES_NOT_EXIST, _error2string[E_PATH_DOES_NOT_EXIST])
+            raise ClientError(E_PATH_DOES_NOT_EXIST, _error2string[E_PATH_DOES_NOT_EXIST] % path)
         super(_UNIXSocketClient, self).__init__(server_type, socket.AF_UNIX, socket.SOCK_STREAM, path, handler, reconnect)
