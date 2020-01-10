@@ -30,5 +30,3 @@ class _SerialConnection(Connection):
     #
     def receive_line(self, buffer_size=None, encoding='utf8'):
         return self._receive_line(1, buffer_size, encoding)
-
-

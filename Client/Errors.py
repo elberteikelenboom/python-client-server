@@ -1,0 +1,17 @@
+E_INTEGRAL_PORT = 1
+E_INVALID_IP_ADDRESS = 2
+E_PATH_EXISTS_BUT_NOT_SOCKET = 3
+E_HANDLER_NOT_CALLABLE = 4
+E_INVALID_BUFFER_TYPE = 5
+E_INVALID_ENCODING_NONE = 6
+E_PATH_DOES_NOT_EXIST = 7
+
+_error2string = {
+    E_INTEGRAL_PORT: "Port number shall be an integral, got: '%r'",
+    E_INVALID_IP_ADDRESS: "Invalid IP-address, got: '%r'",
+    E_PATH_EXISTS_BUT_NOT_SOCKET: "Path already exists but it is not a socket: '%s'",
+    E_HANDLER_NOT_CALLABLE: "The handler is not callable",
+    E_INVALID_BUFFER_TYPE: "Invalid buffer type",
+    E_INVALID_ENCODING_NONE: "The encoding cannot be None",
+    E_PATH_DOES_NOT_EXIST: "Path does not exist: '%s'"
+}
