@@ -10,7 +10,7 @@ def echo_server(connection):
             break
         line_number += 1
         if line_number > 5:
-            break
+            pass
         connection.send(line.upper())
     return 0
 
