@@ -58,7 +58,7 @@ class _SocketClient(Client):
                 logger.info("%s: connect() -- closing connection to: %s.", type(self).__name__, str(self._address))
                 self._close_connection()                                       # In all cases close the connection.
                 if not isinstance(status, int):
-                    status = 0  # When status is not integral, overrule.
+                    status = 0                                                 # When status is not integral, overrule.
                 UNUSED(status)                                                 # The returned status is currently not used.
 
     #
