@@ -29,15 +29,16 @@ class _SocketClient(Client):
 
     #
     # Connect to the server, and run the specified handler for the
-    # connection. When reconnect is set to None, the connection reset
-    # socket error is reraised. When the reconnect setting is a float,
-    # automatically try to reconnect to the server. The reconnect
+    # connection. When reconnect is set to None, no attempt is made
+    # to reconnect when the connection is lost/refused; the exception
+    # will be re-raised in this case. When the reconnect setting is a
+    # float, automatically try to reconnect to the server. The reconnect
     # value is used to throttle the reconnection attempts.
     #
     def connect(self):
         while True:
             self._socket = socket.socket(self._family, self._type)
-            self._socket.connect(self._address)
+            self._connect()
             logger.info("%s: connect() -- connected to server: %s", type(self).__name__, str(self._address))
             status = 0
             try:
@@ -47,18 +48,35 @@ class _SocketClient(Client):
                 status = self._handler(Connection.create(self._client_type, self._socket, self._socket.getpeername()))
             except socket.error as e:
                 if self._reconnect is not None and e.errno == errno.ECONNRESET:
-                    logger.info("%s: connect() -- lost connection to server: %s, reconnecting in: %f seconds", type(self).__name__, str(self._address), self._reconnect)
+                    logger.info("%s: connect() -- lost connection to server: %s, reconnecting in: %f seconds.", type(self).__name__, str(self._address), self._reconnect)
                     time.sleep(self._reconnect)                                # Throttle the reconnection attempts.
                     continue
                 raise e                                                        # No reconnect requested, or not connection reset; re-raise the exception.
             else:
                 break                                                          # The handler exited normally; exit.
             finally:
-                logger.info("%s: connect() -- closing connection to: %s", type(self).__name__, str(self._address))
+                logger.info("%s: connect() -- closing connection to: %s.", type(self).__name__, str(self._address))
                 self._close_connection()                                       # In all cases close the connection.
                 if not isinstance(status, int):
                     status = 0  # When status is not integral, overrule.
                 UNUSED(status)                                                 # The returned status is currently not used.
+
+    #
+    # Try to connect to the service. When requested, keep on
+    # trying to connect with the specified time interval.
+    #
+    def _connect(self):
+        while True:
+            try:
+                self._socket.connect(self._address)
+            except socket.error as e:
+                if self._reconnect is not None and e.errno == errno.ECONNREFUSED:
+                    logger.info("%s: connect() -- service: %s not available, retrying in %f seconds.", type(self).__name__, str(self._address), self._reconnect)
+                    time.sleep(self._reconnect)                                # Throttle reconnection attempts.
+                    continue
+                raise e                                                        # No reconnect requested, or no connection refused; re-raise the exception.
+            else:
+                break                                                          # Successfully connected to service, stop trying.
 
     #
     # Close a connection and ignore any errors

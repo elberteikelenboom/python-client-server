@@ -4,13 +4,9 @@ from Server import Server
 
 def echo_server(connection):
     connection.send('Hello\n')
-    line_number = 0
     for line in connection.receive_lines():
         if line.strip() == 'quit':
             break
-        line_number += 1
-        if line_number > 5:
-            pass
         connection.send(line.upper())
     return 0
 
