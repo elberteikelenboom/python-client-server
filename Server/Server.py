@@ -35,8 +35,20 @@ class Server(object):
     #
     # Abstract method that must be defined in a subclass.
     #
+    # This function runs the server forever.
+    #
     def serve_forever(self):
         raise NotImplementedError("%s: The serve_forever() method shall be implemented in a subclass" % type(self).__name__)
+
+    #
+    # Abstract method that must be defined in a subclass.
+    #
+    # The serve parameter must be a callable. The server is
+    # run as long as the callable returns True. Upon exit
+    # any child processes / threads will be stopped.
+    #
+    def serve_until(self, serve):
+        raise NotImplementedError("%s: The serve_until() method shall be implemented in a subclass" % type(self).__name__)
 
     #
     # Return a forking server instance corresponding to the specified server type.
@@ -46,6 +58,7 @@ class Server(object):
     # * unix: create a UNIX domain socket server.
     # * serial: create a serial port server.
     #
+    # noinspection SpellCheckingInspection
     @classmethod
     def create_forking(cls, server_type, handler, *args, **kwargs):
         #
@@ -72,6 +85,7 @@ class Server(object):
     # * unix: create a UNIX domain socket server.
     # * serial: create a serial port server.
     #
+    # noinspection SpellCheckingInspection
     @classmethod
     def create_threading(cls, server_type, handler, *args, **kwargs):
         #
@@ -98,6 +112,7 @@ class Server(object):
     # * unix: create a UNIX domain socket server.
     # * serial: create a serial port server.
     #
+    # noinspection SpellCheckingInspection
     @classmethod
     def create_iterative(cls, server_type, handler, *args, **kwargs):
         #

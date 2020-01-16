@@ -106,6 +106,22 @@ class Connection(object):
             yield self.receive_line(buffer_size, encoding)
 
     #
+    # When True a disconnect is requested. This property should
+    # be polled regularly.
+    #
+    @property
+    def disconnect(self):
+        raise NotImplementedError("%s: The disconnect() method shall be implemented in a subclass" % type(self).__name__)
+
+    #
+    # Poll the connection. Return a tuple holding two boolean
+    # values: (read, write). When a value is True, the connection
+    # is ready for reading and/or writing respectively.
+    #
+    def poll(self):
+        raise NotImplementedError("%s: The poll() method shall be implemented in a subclass" % type(self).__name__)
+
+    #
     # Return a connection instance corresponding to the specified connection
     # type. The specified server type is case insensitive and can be one of:
     #
@@ -123,8 +139,8 @@ class Connection(object):
 
         connection_type = connection_type.lower()
         _server_type2class = {
-            'tcp': lambda socket, address: _SocketConnection(socket, address),
-            'unix': lambda socket, address: _SocketConnection(socket, address),
+            'tcp': lambda socket, address, disconnect: _SocketConnection(socket, address, disconnect),
+            'unix': lambda socket, address, disconnect: _SocketConnection(socket, address, disconnect),
             'serial': lambda serial: _SerialConnection(serial)
         }
         return _server_type2class[connection_type](*args, **kwargs)

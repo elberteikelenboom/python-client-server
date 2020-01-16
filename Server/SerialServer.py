@@ -4,7 +4,9 @@ import serial
 import threading
 import logging
 from Connection import Connection
-from .Server import Server, UNUSED
+from .Server import Server, ServerError, UNUSED
+from .Errors import *
+from .Errors import _error2string
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -59,7 +61,9 @@ class _ForkingSerialServer(_SerialServer):
             self._serial.reset_input_buffer()
             self._serial.reset_output_buffer()
             pid = os.fork()
-            if pid == 0:
+            if pid < 0:
+                raise ServerError(E_PROCESS_CREATION_ERROR, _error2string[E_PROCESS_CREATION_ERROR])
+            elif pid == 0:
                 status = 0                                                     # Path executed in the child process.
                 try:
                     logger.info("%s: serve_forever() -- Incoming connection.", type(self).__name__)

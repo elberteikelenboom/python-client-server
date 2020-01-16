@@ -3,6 +3,7 @@ import stat
 import errno
 import time
 import socket
+import select
 import threading
 import logging
 from Connection import Connection
@@ -70,45 +71,66 @@ class _SocketServer(Server):
     def serve_forever(self):
         raise NotImplementedError("%s: The serve_forever() method shall be implemented in a subclass" % type(self).__name__)
 
+    #
+    # Abstract method that must be defined in a subclass.
+    #
+    def serve_until(self, serve):
+        raise NotImplementedError("%s: The serve_until() method shall be implemented in a subclass" % type(self).__name__)
+
 
 #
 # Define a forking socket server.
 #
 class _ForkingSocketServer(_SocketServer):
     #
-    # Run the socket server forever. For each connection fork()
-    # a new process and run the connection handler. Do not accept
-    # more then _max_connections at the same time.
+    # Run the server forever.
+    #
+    def serve_forever(self):
+        self.serve_until(lambda: True)
+
+    #
+    # Run the socket server as long as the serve callable returns True.
+    # For each connection fork() a new process and run the connection
+    # handler. Do not accept more then _max_connections at the same
+    # time.
     #
     # When the handler exits, the connection is shutdown/closed. When
     # the handler returns an integral return value, it is returned to the
-    # parent process. Otherwise the return value is set to 0.
+    # parent process. Otherwise the return value is set to 0. The return
+    # value is currently unused.
     #
-    def serve_forever(self):
+    def serve_until(self, serve):
+        if not callable(serve):
+            raise ServerError(E_PARAMETER_IS_NOT_CALLABLE, _error2string[E_PARAMETER_IS_NOT_CALLABLE] % "serve")
         children = []
         self._socket.listen(1)
-        while True:
-            logger.info("%s: serve_forever() -- Accepting connections at: %s.", type(self).__name__, str(self._address))
+        while serve():
+            logging.info("%s: serve_until() -- Waiting for connection at: %s.", type(self).__name__, str(self._address))
+            read, write, error = select.select([self._socket], [], [], 1.0)
+            if len(read) == 0:
+                continue
             connection, address = self._socket.accept()
             pid = os.fork()
-            if pid == 0:
+            if pid < 0:
+                raise ServerError(E_PROCESS_CREATION_ERROR, _error2string[E_PROCESS_CREATION_ERROR])
+            elif pid == 0:
                 status = 0                                             # Path executed in the child process.
                 try:
                     try:
                         #
                         # Call the connection handler.
                         #
-                        logger.info("%s: serve_forever() -- Incoming connection from: %s.", type(self).__name__, str(address))
-                        status = self._handler(Connection.create(self._server_type, connection, address))
+                        logger.info("%s: serve_until() -- Incoming connection from: %s.", type(self).__name__, str(address))
+                        status = self._handler(Connection.create(self._server_type, connection, address, lambda: False))
                     except socket.error as e:
-                        if e.errno == errno.ECONNRESET:
-                            logger.error("%s: serve_forever() -- %s.", type(self).__name__, e)
+                        if e.errno in [errno.ECONNRESET, errno.EPIPE]:
+                            logger.error("%s: serve_until() -- %s.", type(self).__name__, e)
                         else:
                             raise e
                 except Exception as e:
-                    logger.exception("%s: serve_forever() -- %s", type(self).__name__, e)
+                    logger.exception("%s: serve_until() -- %s", type(self).__name__, e)
                 finally:
-                    logger.info("%s: serve_forever() -- Closed connection from: %s.", type(self).__name__, str(address))
+                    logger.info("%s: serve_until() -- Closed connection from: %s.", type(self).__name__, str(address))
                     self._close_connection(connection)                 # Always shutdown/close the connection properly.
                     if not isinstance(status, int):
                         status = 0                                     # When status is not integral, overrule.
@@ -117,7 +139,7 @@ class _ForkingSocketServer(_SocketServer):
             else:
                 children.append(pid)                                   # Path executed in the parent process.
                 log_max_connections = True
-                while True:
+                while serve():
                     for pid in children[:]:
                         finished_pid = 0
                         try:
@@ -137,7 +159,7 @@ class _ForkingSocketServer(_SocketServer):
                     if len(children) < self._max_connections:          # Wait until we can accept connections again.
                         break
                     if log_max_connections:
-                        logger.info("%s: serve_forever() -- Maximum number of connections (%d) reached.", type(self).__name__, self._max_connections)
+                        logger.info("%s: serve_until() -- Maximum number of connections (%d) reached.", type(self).__name__, self._max_connections)
                         log_max_connections = False
                     time.sleep(0.01)                                   # Throttle.
 
@@ -165,7 +187,7 @@ class _ThreadingSocketServer(_SocketServer):
                 try:
                     self._status = self._target(self._connection)
                 except socket.error as e:
-                    if e.errno == errno.ECONNRESET:
+                    if e.errno in [errno.ECONNRESET, errno.ECONNABORTED]:
                         logger.error("%s: serve_forever() -- %s.", type(self).__name__, e)
                     else:
                         raise e
@@ -185,29 +207,42 @@ class _ThreadingSocketServer(_SocketServer):
             return self._status
 
     #
-    # Run the socket server forever. For each connection create
-    # a new thread and run the connection handler in it. Do not accept
-    # more then _max_connections at the same time.
+    # Run the server forever.
+    #
+    def serve_forever(self):
+        self.serve_until(lambda: True)
+
+    #
+    # Run the socket server as long as the serve callable returns True.
+    # For each connection create  a new thread and run the connection
+    # handler in it. Do not accept more then _max_connections at the
+    # same time.
     #
     # When the handler exits, the connection is shutdown/closed. When
     # the handler returns an integral return value, it is returned to the
     # parent process. Otherwise the return value is set to 0.
     #
-    def serve_forever(self):
+    def serve_until(self, serve):
+        if not callable(serve):
+            raise ServerError(E_PARAMETER_IS_NOT_CALLABLE, _error2string[E_PARAMETER_IS_NOT_CALLABLE] % "serve")
         threads = []
         self._socket.listen(1)
-        while True:
-            logger.info("%s: serve_forever() -- Accepting connections at: %s.", type(self).__name__, str(self._address))
-            connection, address = self._socket.accept()
+        while serve():
+            logging.info("%s: serve_until() -- Waiting for connection at: %s.", type(self).__name__, str(self._address))
+            read, write, error = select.select([self._socket], [], [], 1.0)
+            if len(read) == 0:
+                continue
+            connection_socket, address = self._socket.accept()
             #
             # Start the connection handler in a new thread.
             #
             logger.info("%s: serve_forever() -- Incoming connection from: %s.", type(self).__name__, str(address))
-            thread = _ThreadingSocketServer.HandlerThread(target=self._handler, args=(Connection.create(self._server_type, connection, address), self._close_connection, connection, address))
+            connection = Connection.create(self._server_type, connection_socket, address, lambda: not serve())
+            thread = _ThreadingSocketServer.HandlerThread(target=self._handler, args=(connection, self._close_connection, connection_socket, address))
             thread.start()
             threads.append(thread)
             log_max_connections = True
-            while True:
+            while serve():
                 for thread in threads[:]:
                     if not thread.is_alive():
                         #
@@ -220,6 +255,11 @@ class _ThreadingSocketServer(_SocketServer):
                     logger.info("%s: serve_forever() -- Maximum number of connections (%d) reached.", type(self).__name__, self._max_connections)
                     log_max_connections = False
                 time.sleep(0.1)                                        # Throttle.
+        #
+        # Wait for all threads are stopped.
+        #
+        for thread in threads:
+            thread.join()
 
 
 #
@@ -227,18 +267,29 @@ class _ThreadingSocketServer(_SocketServer):
 #
 class _IterativeSocketServer(_SocketServer):
     #
-    # Run the socket server forever. Accept a connection, handle it and
-    # then handle the next connection. Do not fork() nor create threads.
+    # Run the server forever.
+    #
+    def serve_forever(self):
+        self.serve_until(lambda: True)
+
+    #
+    # Accept a connection, handle it and  then handle the next connection.
+    # Do not fork() nor create threads.
     #
     # When the handler exits, the connection is shutdown/closed. When
     # the handler returns an integral return value, it is returned to the
     # parent process. Otherwise the return value is set to 0.
     #
-    def serve_forever(self):
+    def serve_until(self, serve):
+        if not callable(serve):
+            raise ServerError(E_PARAMETER_IS_NOT_CALLABLE, _error2string[E_PARAMETER_IS_NOT_CALLABLE] % "serve")
         self._socket.listen(1)
-        while True:
-            logger.info("%s: serve_forever() -- Accepting connections at: %s.", type(self).__name__, str(self._address))
-            connection, address = self._socket.accept()
+        while serve():
+            logging.info("%s: serve_until() -- Waiting for connection at: %s.", type(self).__name__, str(self._address))
+            read, write, error = select.select([self._socket], [], [], 1.0)
+            if len(read) == 0:
+                continue
+            client_socket, address = self._socket.accept()
             status = 0                                                 # Path executed in the child process.
             try:
                 try:
@@ -246,9 +297,9 @@ class _IterativeSocketServer(_SocketServer):
                     # Call the connection handler.
                     #
                     logger.info("%s: serve_forever() -- Incoming connection from: %s.", type(self).__name__, str(address))
-                    status = self._handler(Connection.create(self._server_type, connection, address))
+                    status = self._handler(Connection.create(self._server_type, client_socket, address, lambda: not serve()))
                 except socket.error as e:
-                    if e.errno == errno.ECONNRESET:
+                    if e.errno in [errno.ECONNRESET, errno.ECONNABORTED]:
                         logger.error("%s: serve_forever() -- %s.", type(self).__name__, e)
                     else:
                         raise e
@@ -256,7 +307,7 @@ class _IterativeSocketServer(_SocketServer):
                 logger.exception("%s: serve_forever() -- %s", type(self).__name__, e)
             finally:
                 logger.info("%s: serve_forever() -- Closed connection from: %s.", type(self).__name__, str(address))
-                self._close_connection(connection)                     # Always shutdown/close the connection properly.
+                self._close_connection(client_socket)                  # Always shutdown/close the connection properly.
                 if not isinstance(status, int):
                     status = 0                                         # When status is not integral, overrule.
             UNUSED(status)

@@ -45,7 +45,7 @@ class _SocketClient(Client):
                 #
                 # Connected to server, run the connection handler.
                 #
-                status = self._handler(Connection.create(self._client_type, self._socket, self._socket.getpeername()))
+                status = self._handler(Connection.create(self._client_type, self._socket, self._socket.getpeername(), lambda: False))
             except socket.error as e:
                 if self._reconnect is not None and e.errno == errno.ECONNRESET:
                     logger.info("%s: connect() -- lost connection to server: %s, reconnecting in: %f seconds.", type(self).__name__, str(self._address), self._reconnect)
