@@ -17,7 +17,7 @@ class TimedServer(threading.Thread):
     def __init__(self, **kwargs):
         super(TimedServer, self).__init__(**kwargs)
         self._keep_running = False
-        self._server = Server.create_iterative('tcp', echo_server, '127.0.0.1', 8080)
+        self._server = Server.create_forking('tcp', echo_server, '127.0.0.1', 8080, max_connections=2)
 
     def start(self):
         self._keep_running = True
@@ -42,7 +42,7 @@ def main():
     # server = Server.create_iterative('serial', echo_server, '/dev/ttyUSB0', rtscts=True, baudrate=115200)
     server = TimedServer()
     server.start()
-    time.sleep(15.0)
+    time.sleep(20.0)
     server.stop()
 
 

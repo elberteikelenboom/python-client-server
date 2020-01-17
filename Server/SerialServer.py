@@ -19,6 +19,7 @@ class _SerialServer(Server):
     #
     # Initialize serial port, but do not open it yet.
     #
+    # noinspection SpellCheckingInspection
     def __init__(self, server_type, handler, port, baudrate, bytesize, parity, stopbits, timeout, xonxoff, rtscts, write_timeout, dsrdtr, inter_byte_timeout, exclusive):
         super(_SerialServer, self).__init__(server_type, port, handler)
         self._serial = serial.Serial(None, baudrate, bytesize, parity, stopbits, timeout, xonxoff, rtscts, write_timeout, dsrdtr, inter_byte_timeout, exclusive)
@@ -69,7 +70,7 @@ class _ForkingSerialServer(_SerialServer):
                     logger.info("%s: serve_forever() -- Incoming connection.", type(self).__name__)
                     status = self._handler(Connection.create(self._server_type, self._serial))
                 except Exception as e:
-                    logger.exception("%s: serve_forever() -- %s", type(self).__name__, e)
+                    logger.exception("%s: serve_forever() -- %s.", type(self).__name__, e)
                 finally:
                     logger.info("%s: serve_forever() -- Closed connection.", type(self).__name__)
                     if not isinstance(status, int):
@@ -113,7 +114,7 @@ class _ThreadingSerialServer(_SerialServer):
             try:
                 self._status = self._target(self._connection)
             except Exception as e:
-                logger.exception("%s: serve_forever() -- %s", type(self).__name__, e)
+                logger.exception("%s: serve_forever() -- %s.", type(self).__name__, e)
             finally:
                 logger.info("%s: serve_forever() -- Closed connection.", type(self).__name__)
                 if not isinstance(self._status, int):
@@ -177,7 +178,7 @@ class _IterativeSerialServer(_SerialServer):
                 logger.info("%s: serve_forever() -- Incoming connection.", type(self).__name__)
                 status = self._handler(Connection.create(self._server_type, self._serial))
             except Exception as e:
-                logger.exception("%s: serve_forever() -- %s", type(self).__name__, e)
+                logger.exception("%s: serve_forever() -- %s.", type(self).__name__, e)
             finally:
                 logger.info("%s: serve_forever() -- Closed connection.", type(self).__name__)
                 self._close_connection()                                       # When the child has exited, close the connection.
