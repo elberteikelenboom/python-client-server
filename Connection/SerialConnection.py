@@ -79,13 +79,13 @@ class _BufferProtocol(Protocol):
 
 
 #
-# Wrapper class around ReadThread in order to catch exceptions
+# Wrapper class around ReaderThread in order to catch exceptions
 # in the run() method and treat them as a connection lost error.
 #
-class ExceptionReaderThread(ReaderThread):
+class _ExceptionReaderThread(ReaderThread):
     def run(self):
         try:
-            super(ExceptionReaderThread, self).run()
+            super(_ExceptionReaderThread, self).run()
         except Exception as e:
             self.protocol.connection_lost(e)
 
@@ -98,7 +98,7 @@ class _SerialConnection(Connection):
     def __init__(self, serial_, disconnect):
         super(_SerialConnection, self).__init__()
         self._disconnect = disconnect
-        self._transport = ExceptionReaderThread(serial_, _BufferProtocol)
+        self._transport = _ExceptionReaderThread(serial_, _BufferProtocol)
         self._transport.start()
         self._transport, self._protocol = self._transport.connect()
 
