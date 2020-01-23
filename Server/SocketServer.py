@@ -3,7 +3,6 @@ import stat
 import errno
 import time
 import socket
-import select
 import threading
 import logging
 from multiprocessing import Pipe
@@ -27,6 +26,7 @@ class _SocketServer(Server):
         super(_SocketServer, self).__init__(server_type, address, handler)
         self._socket = socket.socket(family, type_)
         self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._socket.settimeout(1.0)
         self._socket.bind(self._address)
         self._max_connections = max_connections
 
@@ -84,12 +84,6 @@ class _SocketServer(Server):
 #
 class _ForkingSocketServer(_SocketServer):
     #
-    # Run the server forever.
-    #
-    def serve_forever(self):
-        self.serve_until(lambda: True)
-
-    #
     # Return True when the parent process
     # requests a disconnect.
     #
@@ -112,6 +106,12 @@ class _ForkingSocketServer(_SocketServer):
         return _closure
 
     #
+    # Run the server forever.
+    #
+    def serve_forever(self):
+        self.serve_until(lambda: True)
+
+    #
     # Run the socket server as long as the serve callable returns True.
     # For each connection fork() a new process and run the connection
     # handler. Do not accept more then _max_connections at the same
@@ -129,10 +129,10 @@ class _ForkingSocketServer(_SocketServer):
         self._socket.listen(1)
         while serve():
             logging.info("%s: serve_until() -- Waiting for connection at: %s.", type(self).__name__, str(self._address))
-            read, write, error = select.select([self._socket], [], [], 1.0)
-            if len(read) == 0:
+            try:
+                connection, address = self._socket.accept()
+            except socket.timeout:
                 continue
-            connection, address = self._socket.accept()
             pipe_read, pipe_write = Pipe(False)                        # Create an unidirectional pipe; only send data from parent to child process.
             pid = os.fork()
             if pid < 0:
@@ -221,13 +221,13 @@ class _ThreadingSocketServer(_SocketServer):
                     self._status = self._target(self._connection)
                 except socket.error as e:
                     if e.errno in [errno.ECONNRESET, errno.ECONNABORTED, errno.EPIPE]:
-                        logger.info("%s: serve_forever() -- %s.", type(self).__name__, e)
+                        logger.info("%s: serve_until() -- %s.", type(self).__name__, e)
                     else:
                         raise e
             except Exception as e:
-                logger.exception("%s: serve_forever() -- %s", type(self).__name__, e)
+                logger.exception("%s: serve_until() -- %s", type(self).__name__, e)
             finally:
-                logger.info("%s: serve_forever() -- Closed connection from: %s.", type(self).__name__, str(self._address))
+                logger.info("%s: serve_until() -- Closed connection from: %s.", type(self).__name__, str(self._address))
                 self._close_connection(self._socket)                           # Always shutdown/close the connection properly.
                 if not isinstance(self._status, int):
                     self._status = 0
@@ -262,14 +262,14 @@ class _ThreadingSocketServer(_SocketServer):
         self._socket.listen(1)
         while serve():
             logging.info("%s: serve_until() -- Waiting for connection at: %s.", type(self).__name__, str(self._address))
-            read, write, error = select.select([self._socket], [], [], 1.0)
-            if len(read) == 0:
+            try:
+                connection_socket, address = self._socket.accept()
+            except socket.timeout:
                 continue
-            connection_socket, address = self._socket.accept()
             #
             # Start the connection handler in a new thread.
             #
-            logger.info("%s: serve_forever() -- Incoming connection from: %s.", type(self).__name__, str(address))
+            logger.info("%s: serve_until() -- Incoming connection from: %s.", type(self).__name__, str(address))
             connection = Connection.create(self._server_type, connection_socket, address, lambda: not serve())
             thread = _ThreadingSocketServer.HandlerThread(target=self._handler, args=(connection, self._close_connection, connection_socket, address))
             thread.start()
@@ -285,7 +285,7 @@ class _ThreadingSocketServer(_SocketServer):
                 if len(threads) < self._max_connections:
                     break
                 if log_max_connections:
-                    logger.info("%s: serve_forever() -- Maximum number of connections (%d) reached.", type(self).__name__, self._max_connections)
+                    logger.info("%s: serve_until() -- Maximum number of connections (%d) reached.", type(self).__name__, self._max_connections)
                     log_max_connections = False
                 time.sleep(0.1)                                        # Throttle.
         #
@@ -319,10 +319,10 @@ class _IterativeSocketServer(_SocketServer):
         self._socket.listen(1)
         while serve():
             logging.info("%s: serve_until() -- Waiting for connection at: %s.", type(self).__name__, str(self._address))
-            read, write, error = select.select([self._socket], [], [], 1.0)
-            if len(read) == 0:
+            try:
+                client_socket, address = self._socket.accept()
+            except socket.timeout:
                 continue
-            client_socket, address = self._socket.accept()
             status = 0                                                 # Path executed in the child process.
             try:
                 try:
@@ -333,13 +333,13 @@ class _IterativeSocketServer(_SocketServer):
                     status = self._handler(Connection.create(self._server_type, client_socket, address, lambda: not serve()))
                 except socket.error as e:
                     if e.errno in [errno.ECONNRESET, errno.ECONNABORTED, errno.EPIPE]:
-                        logger.info("%s: serve_forever() -- %s.", type(self).__name__, e)
+                        logger.info("%s: serve_until() -- %s.", type(self).__name__, e)
                     else:
                         raise e
             except Exception as e:
-                logger.exception("%s: serve_forever() -- %s", type(self).__name__, e)
+                logger.exception("%s: serve_until() -- %s", type(self).__name__, e)
             finally:
-                logger.info("%s: serve_forever() -- Closed connection from: %s.", type(self).__name__, str(address))
+                logger.info("%s: serve_until() -- Closed connection from: %s.", type(self).__name__, str(address))
                 self._close_connection(client_socket)                  # Always shutdown/close the connection properly.
                 if not isinstance(status, int):
                     status = 0                                         # When status is not integral, overrule.

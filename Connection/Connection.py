@@ -141,6 +141,6 @@ class Connection(object):
         _server_type2class = {
             'tcp': lambda socket, address, disconnect: _SocketConnection(socket, address, disconnect),
             'unix': lambda socket, address, disconnect: _SocketConnection(socket, address, disconnect),
-            'serial': lambda serial: _SerialConnection(serial)
+            'serial': lambda serial, disconnect: _SerialConnection(serial, disconnect)
         }
         return _server_type2class[connection_type](*args, **kwargs)
