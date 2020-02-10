@@ -35,27 +35,35 @@ class _SocketClient(Client):
     # float, automatically try to reconnect to the server. The reconnect
     # value is used to throttle the reconnection attempts.
     #
-    def connect(self):
+    # When the disconnect callable returns True, the client disconnects
+    # from the server.
+    #
+    def connect(self, disconnect):
+        if not callable(disconnect):
+            raise ClientError(E_PARAMETER_IS_NOT_CALLABLE, _error2string[E_PARAMETER_IS_NOT_CALLABLE] % "disconnect")
         while True:
-            self._socket = socket.socket(self._family, self._type)
-            self._connect()
-            logger.info("%s: connect() -- connected to server: %s", type(self).__name__, str(self._address))
+            if not self._connect(disconnect):
+                break
+            logger.info("%s: connect() -- Connected to server: %s", type(self).__name__, str(self._address))
             status = 0
             try:
                 #
                 # Connected to server, run the connection handler.
                 #
-                status = self._handler(Connection.create(self._client_type, self._socket, self._socket.getpeername(), lambda: False))
+                status = self._handler(Connection.create(self._client_type, self._socket, self._socket.getpeername(), disconnect))
             except socket.error as e:
-                if self._reconnect is not None and e.errno == errno.ECONNRESET:
-                    logger.info("%s: connect() -- lost connection to server: %s, reconnecting in: %f seconds.", type(self).__name__, str(self._address), self._reconnect)
+                if e.errno == errno.ECONNABORTED:
+                    logger.info("%s: connect() -- %s.", type(self).__name__, e)
+                    break
+                elif self._reconnect is not None and e.errno in [errno.ECONNRESET, errno.EPIPE]:
+                    logger.info("%s: connect() -- Lost connection to server: %s, reconnecting in: %f seconds.", type(self).__name__, str(self._address), self._reconnect)
                     time.sleep(self._reconnect)                                # Throttle the reconnection attempts.
                     continue
                 raise e                                                        # No reconnect requested, or not connection reset; re-raise the exception.
             else:
                 break                                                          # The handler exited normally; exit.
             finally:
-                logger.info("%s: connect() -- closing connection to: %s.", type(self).__name__, str(self._address))
+                logger.info("%s: connect() -- Closing connection to: %s.", type(self).__name__, str(self._address))
                 self._close_connection()                                       # In all cases close the connection.
                 if not isinstance(status, int):
                     status = 0                                                 # When status is not integral, overrule.
@@ -64,19 +72,22 @@ class _SocketClient(Client):
     #
     # Try to connect to the service. When requested, keep on
     # trying to connect with the specified time interval.
+    # Return True when connected, False otherwise.
     #
-    def _connect(self):
-        while True:
+    def _connect(self, disconnect):
+        while not disconnect():
             try:
+                self._socket = socket.socket(self._family, self._type)
                 self._socket.connect(self._address)
             except socket.error as e:
                 if self._reconnect is not None and e.errno == errno.ECONNREFUSED:
-                    logger.info("%s: connect() -- service: %s not available, retrying in %f seconds.", type(self).__name__, str(self._address), self._reconnect)
+                    logger.info("%s: connect() -- Service: %s not available, retrying in %f seconds.", type(self).__name__, str(self._address), self._reconnect)
                     time.sleep(self._reconnect)                                # Throttle reconnection attempts.
                     continue
                 raise e                                                        # No reconnect requested, or no connection refused; re-raise the exception.
             else:
-                break                                                          # Successfully connected to service, stop trying.
+                return True                                                    # Successfully connected to service, stop trying.
+        return False
 
     #
     # Close a connection and ignore any errors

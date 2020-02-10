@@ -17,6 +17,9 @@ class ClientError(Exception):
         self.error_code = error_code
 
 
+#
+# Define the client base class.
+#
 class Client(object):
     def __init__(self, client_type, address, handler):
         if not callable(handler):
@@ -25,9 +28,22 @@ class Client(object):
         self._address = address
         self._handler = handler
 
-    def connect(self):
+    #
+    # Connect to the server as long as the disconnect
+    # callable returns False.
+    #
+    def connect(self, disconnect):
         NotImplementedError("%s: The connect() method shall be implemented in a subclass" % type(self).__name__)
 
+    #
+    # Return a client instance corresponding to the specified client type.
+    # The specified client type is case insensitive and can be one of:
+    #
+    # * tcp : create a TCP/IP socket client.
+    # * unix: create a UNIX domain socket client.
+    # * serial: create a serial port client.
+    #
+    # noinspection SpellCheckingInspection
     @classmethod
     def create(cls, client_type, handler, *args, **kwargs):
         #
@@ -42,6 +58,6 @@ class Client(object):
         _server_type2class = {
             'tcp': lambda _handler, address, port, reconnect=None: _TCPSocketClient(client_type, _handler, address, port, reconnect),
             'unix': lambda _handler, path, reconnect=None: _UNIXSocketClient(client_type, _handler, path, reconnect),
-            'serial': lambda _handler, port, baudrate=9600, bytesize=serial.EIGHTBITS, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, timeout=None, xonxoff=False, rtscts=False, write_timeout=None, dsrdtr=False, inter_byte_timeout=None, exclusive=None: _SerialClient(client_type, _handler, port, baudrate, bytesize, parity, stopbits, timeout, xonxoff, rtscts, write_timeout, dsrdtr, inter_byte_timeout, exclusive)
+            'serial': lambda _handler, port, reconnect=None, baudrate=9600, bytesize=serial.EIGHTBITS, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, timeout=None, xonxoff=False, rtscts=False, write_timeout=None, dsrdtr=False, inter_byte_timeout=None, exclusive=None: _SerialClient(client_type, _handler, reconnect, port, baudrate, bytesize, parity, stopbits, timeout, xonxoff, rtscts, write_timeout, dsrdtr, inter_byte_timeout, exclusive)
         }
         return _server_type2class[client_type](handler, *args, **kwargs)
