@@ -48,12 +48,6 @@ class _SocketConnection(Connection):
         return self._decode(buffer, encoding)
 
     #
-    # Receive a single line of text from peer.
-    #
-    def receive_line(self, buffer_size=None, encoding='utf8'):
-        return self._receive_line(1024, buffer_size, encoding)
-
-    #
     # Return a tuple indicating whether or not the
     # connection is ready for reading and/or writing.
     #

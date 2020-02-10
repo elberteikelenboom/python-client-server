@@ -34,7 +34,8 @@ class Connection(object):
     # Decode a received buffer. Raise an exception when
     # buffer has an invalid type. When encoding is not
     # None, the buffer is decoded and the universal newlines
-    # are replaced by '\n'.
+    # are replaced by '\n'. When encoding is None, return a
+    # bytes object.
     #
     @staticmethod
     def _decode(buffer, encoding='utf8'):
@@ -46,25 +47,6 @@ class Connection(object):
         else:
             decoded = bytes(buffer)
         return decoded
-
-    #
-    # Receive a single line of text from peer; read
-    # max chunk-size bytes at once.
-    #
-    def _receive_line(self, chunk_size, buffer_size=None, encoding='utf8'):
-        if buffer_size is not None:
-            buffer_size = max(1, buffer_size)                                          # Buffer size is at least 1 byte.
-        if encoding is None:
-            raise ConnectionError(E_INVALID_ENCODING_NONE, _error2string[E_INVALID_ENCODING_NONE])
-        nl = self._line_buffer.find('\n')
-        while nl < 0:
-            self._line_buffer += self.receive(chunk_size, encoding)
-            nl = self._line_buffer.find('\n')
-            if buffer_size is not None and len(self._line_buffer) > buffer_size and (nl > buffer_size or nl < 0):
-                nl = buffer_size - 1
-        line = self._line_buffer[:nl + 1]
-        self._line_buffer = self._line_buffer[nl + 1:]
-        return line
 
     #
     # Send buffer to peer. If the encoding is not None,
@@ -91,7 +73,18 @@ class Connection(object):
     # character.
     #
     def receive_line(self, buffer_size=None, encoding='utf8'):
-        raise NotImplementedError("%s: The receive_line() method shall be implemented in a subclass" % type(self).__name__)
+        if encoding is None:
+            raise ConnectionError(E_INVALID_ENCODING_NONE, _error2string[E_INVALID_ENCODING_NONE])
+        if buffer_size is not None:
+            buffer_size = max(1, buffer_size)                                          # Buffer size is at least 1 byte.
+        nl = self._line_buffer.find('\n')
+        while nl < 0:
+            self._line_buffer += self.receive(encoding=encoding)
+            nl = self._line_buffer.find('\n')
+            if buffer_size is not None and len(self._line_buffer) > buffer_size and (nl > buffer_size or nl < 0):
+                nl = buffer_size - 1
+        line, self._line_buffer = self._line_buffer[:nl + 1], self._line_buffer[nl + 1:]
+        return line
 
     #
     # Receive one or more lines of text from peer. The encoding
